@@ -155,11 +155,13 @@
 			sheetMemory.setInt32(cell.nRow, 4, formulaSave);
 			numberSave = cell.getTextIndex();
 			sheetMemory.setInt32(cell.nRow, 8, numberSave);
+			sheetMemory.setInt32(cell.nRow, 12, cell.vm || 0);// picture in cell, as Cell.saveContent
 		} else {
 			// Formula-only: mirror saveContent's empty-branch write.
 			var flagsF = cell._toFlags(flagValue);
 			sheetMemory.setInt32(cell.nRow, 0, (flagsF << 24));
 			sheetMemory.setInt32(cell.nRow, 4, formulaSave);
+			sheetMemory.setInt32(cell.nRow, 12, cell.vm || 0);
 		}
 	}
 

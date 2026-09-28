@@ -686,6 +686,7 @@ function (window, undefined) {
 		this.RichValueTypesInfo = 197;
 		this.RichValueData = 198;
 		this.TableStyle = 199;
+		this.RichValueRels = 200;
 
 		this.Create = function (nType) {
 			switch (nType) {
@@ -876,6 +877,8 @@ function (window, undefined) {
 					return new AscCommonExcel.CRichValueData();
 				case this.TableStyle:
 					return new Asc.CTableStyle();
+				case this.RichValueRels:
+					return new AscCommonExcel.CRichValueRels();
 			}
 			return null;
 		};
@@ -3342,6 +3345,14 @@ function (window, undefined) {
 			wb.setDefaultTableStyle(bUndo ? Data.from : Data.to, false);
 		} else if (AscCH.historyitem_Workbook_DefaultPivotStyle === Type) {
 			wb.setDefaultPivotStyle(bUndo ? Data.from : Data.to, false);
+		} else if (AscCH.historyitem_Workbook_RichValueRels === Type) {
+			wb.richValueRels = bUndo ? (Data.from ? Data.from.clone(): null) : (Data.to ? Data.to.clone(): null);
+			if (wb.bCollaborativeChanges && wb.richValueRels) {
+				//media uploaded by another user: ask the server for its url (Load_Images after applying changes)
+				wb.richValueRels.rels.forEach(function (media) {
+					media && !AscCommon.g_oDocumentUrls.getImageUrl(media) && AscCommon.CollaborativeEditing.Add_NewImage(media);
+				});
+			}
 		}
 	};
 	UndoRedoWorkbook.prototype.forwardTransformationIsAffect = function (Type) {

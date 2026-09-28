@@ -70,6 +70,7 @@ function (window, undefined) {
 	window['AscCH'].historyitem_Workbook_TableStyle = 26;
 	window['AscCH'].historyitem_Workbook_DefaultTableStyle = 27;
 	window['AscCH'].historyitem_Workbook_DefaultPivotStyle = 28;
+	window['AscCH'].historyitem_Workbook_RichValueRels = 29;
 
 	window['AscCH'].historyitem_Worksheet_RemoveCell = 1;
 	window['AscCH'].historyitem_Worksheet_RemoveRows = 2;

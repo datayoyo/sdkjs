@@ -215,6 +215,8 @@
 		//user protection range info
 		this.isUserProtected = null;
 
+		this.cellImage = null;//{src, alt} of a picture placed in the cell
+
 		// ToDo not used
 		this.border = null;
 	}
@@ -224,6 +226,9 @@
 	};
 	asc_CCellInfo.prototype.asc_getText = function () {
 		return this.text;
+	};
+	asc_CCellInfo.prototype.asc_getCellImage = function () {
+		return this.cellImage ? {"src": this.cellImage.src, "alt": this.cellImage.alt} : null;
 	};
 	asc_CCellInfo.prototype.asc_getMerge = function () {
 		return this.merge;
@@ -470,6 +475,7 @@
 	prot = asc_CCellInfo.prototype;
 	prot["asc_getXfs"] = prot.asc_getXfs;
 	prot["asc_getText"] = prot.asc_getText;
+	prot["asc_getCellImage"] = prot.asc_getCellImage;
 	prot["asc_getMerge"] = prot.asc_getMerge;
 	prot["asc_getSelectionType"] = prot.asc_getSelectionType;
 	prot["asc_getMultiselect"] = prot.asc_getMultiselect;

@@ -314,7 +314,12 @@
         XmlMap: 30,
         RdRichValue: 31,
         RdRichValueStructure: 32,
-        RdRichValueTypes: 33
+        RdRichValueTypes: 33,
+        RichValueRels: 34
+    };
+    /** @enum */
+    var c_oSer_RichValueRels = {
+        Rel: 0 // media file name ("image1.png"), empty when the rel is not an image
     };
     /** @enum */
     var c_oSerWorkbookPrTypes =
@@ -3946,6 +3951,19 @@
 			}
 			if (this.wb.richValueTypesInfo && AscCommonExcel.bIsSupportDynamicArrays) {
 				this.bs.WriteItem(c_oSerWorkbookTypes.RdRichValueTypes, function () {oThis.WriteRichValueTypes(oThis.wb.richValueTypesInfo);});
+			}
+			if (this.wb.richValueRels && this.wb.richValueRels.rels.length > 0) {
+				this.bs.WriteItem(c_oSerWorkbookTypes.RichValueRels, function () {
+					let rels = oThis.wb.richValueRels.rels;
+					for (let i = 0; i < rels.length; ++i) {
+						// x2t reads each item as a string prefixed with its length in chars
+						oThis.bs.WriteItem(c_oSer_RichValueRels.Rel, function () {
+							let media = rels[i] || "";
+							oThis.memory.WriteULong(media.length);
+							oThis.memory.WriteString3(media);
+						});
+					}
+				});
 			}
         };
         this.WriteWorkbookPr = function()
@@ -9656,9 +9674,11 @@
         this.Read = function()
         {
             var oThis = this;
-            return this.bcr.ReadTable(function(t, l){
+            var res = this.bcr.ReadTable(function(t, l){
                 return oThis.ReadWorkbookContent(t,l);
             });
+            this.oWorkbook.normalizeCellImages && this.oWorkbook.normalizeCellImages();
+            return res;
         };
         this.ReadWorkbookContent = function(type, length)
         {
@@ -9862,6 +9882,16 @@
                 this.oWorkbook.richValueTypesInfo = new AscCommonExcel.CRichValueTypesInfo();
                 res = this.bcr.Read1(length, function (t, l) {
                     return oThis.ReadRichValueTypesInfo(t, l, oThis.oWorkbook.richValueTypesInfo);
+                });
+            } else if (c_oSerWorkbookTypes.RichValueRels === type) {
+                let richValueRels = this.oWorkbook.richValueRels = new AscCommonExcel.CRichValueRels();
+                res = this.bcr.Read1(length, function (t, l) {
+                    if (c_oSer_RichValueRels.Rel !== t) {
+                        return c_oSerConstants.ReadUnknown;
+                    }
+                    // x2t leaves the item empty for a rel that is not an image
+                    richValueRels.rels.push(l > 0 ? oThis.stream.GetString2LE(2 * oThis.stream.GetULongLE()) : "");
+                    return c_oSerConstants.ReadOk;
                 });
             }
             else
