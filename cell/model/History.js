@@ -169,6 +169,7 @@ function (window, undefined) {
 	window['AscCH'].historyitem_RowCol_Locked = 23;
 	window['AscCH'].historyitem_RowCol_HiddenFormulas = 24;
 	window['AscCH'].historyitem_RowCol_ReadingOrder = 25;
+	window['AscCH'].historyitem_RowCol_Checkbox = 26;
 
 	window['AscCH'].historyitem_Cell_Fontname = 1;
 	window['AscCH'].historyitem_Cell_Fontsize = 2;
@@ -206,6 +207,7 @@ function (window, undefined) {
 	// Range-form companion of SetStyleOnly: one record per CRangeAttrArray
 	// run (bbox + uniform oldXfs/newXfs); splits to per-cell on OT conflict.
 	window['AscCH'].historyitem_Cell_SetStyleOnlyRange = 33;
+	window['AscCH'].historyitem_Cell_SetCheckbox = 34;
 
 	window['AscCH'].historyitem_Comment_Add = 1;
 	window['AscCH'].historyitem_Comment_Remove = 2;

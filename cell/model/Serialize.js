@@ -225,7 +225,8 @@
         QuotePrefix: 11,
         XfId: 12,
         Aligment: 13,
-        Protection: 14
+        Protection: 14,
+        Checkbox: 16
     };
 	var c_oSerProtectionTypes =
     {
@@ -2138,6 +2139,7 @@
 		this.applyProtection = null;
 		this.locked = null;
 		this.hidden = null;
+		this.checkbox = null;
 	}
 
 	function ReadColorSpreadsheet2(bcr, length) {
@@ -3482,6 +3484,12 @@
 					this.memory.WriteByte(c_oSerPropLenType.Variable);
 					this.bs.WriteItemWithLength(function(){oThis.WriteProtection(xf);});
                 }
+				if (!isCellStyle && xf.checkbox)
+				{
+					this.memory.WriteByte(c_oSerXfsTypes.Checkbox);
+					this.memory.WriteByte(c_oSerPropLenType.Byte);
+					this.memory.WriteBool(true);
+				}
             }
         };
 		this.WriteProtection = function(xf)
@@ -9208,6 +9216,9 @@
             }
             else if (c_oSerXfsTypes.ApplyProtection == type) {
 				oXfs.applyProtection = this.stream.GetBool();
+            }
+            else if (c_oSerXfsTypes.Checkbox == type) {
+				oXfs.checkbox = this.stream.GetBool() || null;
             }
             else if ( c_oSerXfsTypes.Protection == type )
 			{
@@ -15629,6 +15640,8 @@
                 newXf.locked = xfs.locked;
             if(null != xfs.applyProtection)
                 newXf.applyProtection = xfs.applyProtection;
+            if(null != xfs.checkbox)
+                newXf.checkbox = xfs.checkbox;
             if(null != xfs.align)
                 newXf.align = xfs.align;
             if (null !== xfs.XfId) {
