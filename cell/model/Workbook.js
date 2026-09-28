@@ -10484,6 +10484,35 @@
 	Worksheet.prototype.renameDependencyNodes = function(offset, oBBox){
 		return this.workbook.dependencyFormulas.shift(this.Id, oBBox, offset);
 	};
+	/**
+	 * In-cell checkbox at (row, col): null unless the cell's style has one and its value is a boolean (only booleans
+	 * display as checkboxes), else {checked, formula} (a formula result cannot be toggled).
+	 */
+	Worksheet.prototype.getCheckbox = function (row, col) {
+		var ws = this, res = null;
+		this._getCellNoEmpty(row, col, function (cell) {
+			res = cell ? ws.getCellCheckbox(cell) : null;
+		});
+		return res;
+	};
+	Worksheet.prototype.getCellCheckbox = function (cell) {
+		if (CellValueType.Bool !== cell.getType()) {
+			return null;
+		}
+		var xfs = this.getCompiledStyle(cell.nRow, cell.nCol, cell);
+		return xfs && xfs.checkbox ? {checked: cell.getBoolValue(), formula: cell.isFormula()} : null;
+	};
+	/** Whether a cell with a value in bbox has the in-cell checkbox format. */
+	Worksheet.prototype.hasCheckboxFormat = function (bbox) {
+		var res = false;
+		this.getRange3(bbox.r1, bbox.c1, bbox.r2, bbox.c2)._foreachNoEmpty(function (cell) {
+			if (cell.xfs && cell.xfs.checkbox) {
+				res = true;
+				return true;//stop
+			}
+		});
+		return res;
+	};
 	Worksheet.prototype.getAllCol = function(){
 		if(null == this.oAllCol)
 			this.oAllCol = new AscCommonExcel.Col(this, g_nAllColIndex);
@@ -16342,6 +16371,12 @@
 		if(AscCommon.History.Is_On() && oRes.oldVal != oRes.newVal)
 			AscCommon.History.Add(AscCommonExcel.g_oUndoRedoCell, AscCH.historyitem_Cell_SetLocked, this.ws.getId(), new Asc.Range(this.nCol, this.nRow, this.nCol, this.nRow), new UndoRedoData_CellSimpleData(this.nRow, this.nCol, oRes.oldVal, oRes.newVal));
 	};
+	Cell.prototype.setCheckbox=function(val){
+		var oRes = this.ws.workbook.oStyleManager.setCheckbox(this, val);
+		if(AscCommon.History.Is_On() && oRes.oldVal != oRes.newVal)
+			AscCommon.History.Add(AscCommonExcel.g_oUndoRedoCell, AscCH.historyitem_Cell_SetCheckbox, this.ws.getId(), new Asc.Range(this.nCol, this.nRow, this.nCol, this.nRow), new UndoRedoData_CellSimpleData(this.nRow, this.nCol, oRes.oldVal, oRes.newVal));
+	};
+
 	Cell.prototype.setHiddenFormulas=function(val){
 		var oRes = this.ws.workbook.oStyleManager.setHiddenFormulas(this, val);
 		if(AscCommon.History.Is_On() && oRes.oldVal != oRes.newVal)
@@ -20039,6 +20074,27 @@
 			col.setLocked(val);
 		}, function (cell) {
 			cell.setLocked(val);
+		});
+	};
+	Range.prototype.setCheckbox = function (val) {
+		val = val ? true : null;//false and null would be two styles for the same look
+		AscCommon.History.Create_NewPoint();
+		this.createCellOnRowColCross();
+		var fSetProperty = this._setProperty;
+		var nRangeType = this._getRangeType();
+		if (c_oRangeType.All == nRangeType) {
+			this.worksheet.getAllCol().setCheckbox(val);
+			fSetProperty = this._setPropertyNoEmpty;
+		}
+		fSetProperty.call(this, function (row) {
+			if (c_oRangeType.All == nRangeType && null == row.xfs) {
+				return;
+			}
+			row.setCheckbox(val);
+		}, function (col) {
+			col.setCheckbox(val);
+		}, function (cell) {
+			cell.setCheckbox(val);
 		});
 	};
 	Range.prototype.setHiddenFormulas = function (val) {

@@ -3401,6 +3401,8 @@ function (window, undefined) {
 				cell.setApplyProtection(Val);
 			} else if (AscCH.historyitem_Cell_SetLocked == Type) {
 				cell.setLocked(Val);
+			} else if (AscCH.historyitem_Cell_SetCheckbox == Type) {
+				cell.setCheckbox(Val);
 			} else if (AscCH.historyitem_Cell_SetHidden == Type) {
 				cell.setHiddenFormulas(Val);
 			}
@@ -4838,6 +4840,8 @@ function (window, undefined) {
 				row.setApplyProtection(Val);
 			} else if (AscCH.historyitem_RowCol_Locked == Type) {
 				row.setLocked(Val);
+			} else if (AscCH.historyitem_RowCol_Checkbox == Type) {
+				row.setCheckbox(Val);
 			} else if (AscCH.historyitem_RowCol_HiddenFormulas == Type) {
 				row.setHiddenFormulas(Val);
 			}

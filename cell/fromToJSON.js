@@ -3015,6 +3015,7 @@
 			"pivotButton":       xf.PivotButton != null ? xf.PivotButton : undefined,
 			"xfId":              xf.XfId != null && !isCellStyle ? xf.XfId : undefined,
 			"applyProtection":   xf.applyProtection != null ? xf.applyProtection : undefined,
+			"checkbox":          xf.checkbox && !isCellStyle ? true : undefined,
 			"protection": null != xf.locked || null != xf.hidden ? {
 				"hidden": xf.hidden != null ? xf.hidden : undefined,
 				"locked": xf.locked != null ? xf.locked : undefined
@@ -4384,6 +4385,8 @@
             oXfs.align = this.AlignFromJSON(oParsed["alignment"]);
         if (oParsed["applyProtection"] != null)
             oXfs.applyProtection = oParsed["applyProtection"];
+        if (oParsed["checkbox"])
+            oXfs.checkbox = true;
 		if (oParsed["protection"] != null)
 		{
 			if (oParsed["protection"]["hidden"] != null)

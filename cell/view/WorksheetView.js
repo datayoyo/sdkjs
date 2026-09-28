@@ -6216,6 +6216,9 @@ function isAllowPasteLink(pastedWb) {
 			if (this._drawCellImage(ctx, row, col, top, width + mwidth, height + mheight, offsetX, offsetY)) {
 				continue;
 			}
+			if (this._drawCellCheckbox(ctx, row, col, offsetX, offsetY)) {
+				continue;
+			}
 			var showValue = this._drawCellCF(ctx, cfIterator, c, row, col, top, width + mwidth, height + mheight, offsetX, offsetY);
 			if (showValue) {
 				drawCells[col] = 1;
@@ -6530,6 +6533,244 @@ function isAllowPasteLink(pastedWb) {
 			t.workbook._onWSSelectionChanged();
 		});
 	};
+	/**
+	 * In-cell checkbox: square in sheet coordinates (not scrolled, not mirrored), sized from the font (Excel: font size
+	 * sizes the box) and placed by the cell alignment (general centres it, as booleans; default vertical is bottom).
+	 */
+	WorksheetView.prototype._getCellCheckboxRect = function (col, row) {
+		var mc = this.model.getMergedByCell(row, col);
+		var c1 = mc ? mc.c1 : col, r1 = mc ? mc.r1 : row;
+		var x1 = this._getColLeft(c1), y1 = this._getRowTop(r1);
+		var w = this._getColLeft((mc ? mc.c2 : col) + 1) - x1, h = this._getRowTop((mc ? mc.r2 : row) + 1) - y1;
+		var c = this._getVisibleCell(c1, r1), align = c.getAlign();
+		var size = AscCommon.AscBrowser.convertToRetinaValue(getCFIconSize(c.getFont().getSize()) * 0.8 * this.getZoom(), true);
+		size = Math.max(1, Math.min(Asc.round(size), w - 2, h - 2));
+		var pad = this.settings.cells.padding;
+		var x = x1 + Asc.round((w - size) / 2), y = y1 + h - size - pad;
+		switch (align.getAlignHorizontal()) {
+			case AscCommon.align_Left:
+				x = x1 + pad;
+				break;
+			case AscCommon.align_Right:
+				x = x1 + w - size - pad;
+				break;
+		}
+		switch (align.getAlignVertical()) {
+			case Asc.c_oAscVAlign.Top:
+				y = y1 + pad;
+				break;
+			case Asc.c_oAscVAlign.Center:
+			case Asc.c_oAscVAlign.Dist:
+			case Asc.c_oAscVAlign.Just:
+				y = y1 + Asc.round((h - size) / 2);
+				break;
+		}
+		return {x: x, y: Math.max(y1 + 1, y), size: size};
+	};
+	/**
+	 * In-cell checkbox: draws the box instead of TRUE/FALSE in the font colour (checked: filled with a check mark).
+	 * @returns {boolean} true when the cell shows a checkbox (its value text is not drawn)
+	 */
+	WorksheetView.prototype._drawCellCheckbox = function (ctx, row, col, offsetX, offsetY) {
+		var state = this.model.getCheckbox(row, col);
+		if (!state) {
+			return false;
+		}
+		var rect = this._getCellCheckboxRect(col, row);
+		var x = rect.x - offsetX, y = rect.y - offsetY, s = rect.size;
+		if (this.getRightToLeft()) {
+			x = this.getCtxWidth(ctx) - x - s;
+		}
+		var color = this._getVisibleCell(col, row).getFont().getColor();
+		var lineWidth = Math.max(1, Asc.round(s / 12));
+		ctx.setLineWidth(lineWidth);
+		if (state.checked) {
+			ctx.setFillStyle(color).fillRect(x, y, s, s);
+			ctx.setStrokeStyle(new AscCommon.CColor(255, 255, 255)).setLineWidth(Math.max(1, Asc.round(s / 7)));
+			ctx.beginPath();
+			ctx.moveTo(x + s * 0.22, y + s * 0.52);
+			ctx.lineTo(x + s * 0.42, y + s * 0.72);
+			ctx.lineTo(x + s * 0.78, y + s * 0.3);
+			ctx.stroke();
+		} else {
+			ctx.setStrokeStyle(color).strokeRect(x, y, s - lineWidth, s - lineWidth);
+		}
+		ctx.setLineWidth(1);
+		return true;
+	};
+	/** In-cell checkbox under (x, y) in sheet coordinates, if it can be clicked (not a formula result). */
+	WorksheetView.prototype._hitCellCheckbox = function (x, y, col, row) {
+		var mc = this.model.getMergedByCell(row, col);
+		if (mc) {
+			col = mc.c1;
+			row = mc.r1;
+		}
+		var state = this.model.getCheckbox(row, col);
+		if (!state || state.formula) {
+			return false;
+		}
+		var rect = this._getCellCheckboxRect(col, row);
+		return rect.x - 1 <= x && x <= rect.x + rect.size + 1 && rect.y - 1 <= y && y <= rect.y + rect.size + 1;
+	};
+	/** In-cell checkboxes of the ranges that can be toggled (no formula): [{row, col, checked}]. */
+	WorksheetView.prototype._getCheckboxCells = function (ranges) {
+		var ws = this.model, res = [];
+		ranges.forEach(function (range) {
+			ws.getRange3(range.r1, range.c1, range.r2, range.c2)._foreachNoEmpty(function (cell) {
+				var state = ws.getCellCheckbox(cell);
+				if (state && !state.formula) {
+					res.push({row: cell.nRow, col: cell.nCol, checked: state.checked});
+				}
+			});
+		});
+		return res;
+	};
+	/**
+	 * Writes TRUE/FALSE into checkbox cells: one history point, sheet protection as for typing; co-editing locks on
+	 * opt_lockRanges (the selection) or on the cells.
+	 */
+	WorksheetView.prototype._setCheckboxValues = function (cells, checked, opt_lockRanges) {
+		var t = this;
+		if (this.collaborativeEditing.getGlobalLock() || !this.workbook.canEdit()) {
+			return;
+		}
+		var ranges = cells.map(function (cell) {
+			return new asc_Range(cell.col, cell.row, cell.col, cell.row);
+		});
+		if (!ranges.length) {
+			return;
+		}
+		if (this.model.getSheetProtection() && ranges.some(function (range) {
+			return t.model.isLockedRange(range);
+		})) {
+			this.model.workbook.handlers.trigger("asc_onError", c_oAscError.ID.ChangeOnProtectedSheet, c_oAscError.Level.NoCritical);
+			return;
+		}
+		ranges = opt_lockRanges || ranges;
+		this._isLockedCells(ranges, /*subType*/null, function (isSuccess) {
+			if (!isSuccess) {
+				return;
+			}
+			var value = new AscCommonExcel.CCellValue();
+			value.type = CellValueType.Bool;
+			value.number = checked ? 1 : 0;
+			History.Create_NewPoint();
+			History.StartTransaction();
+			cells.forEach(function (cell) {
+				t.model._getCellNoEmpty(cell.row, cell.col, function (oCell) {
+					oCell && oCell.setValueData(new AscCommonExcel.UndoRedoData_CellValueData(null, value));
+				});
+			});
+			History.EndTransaction();
+			ranges.forEach(function (range) {
+				t._updateRange(range);
+			});
+			t.draw();
+			t.workbook._onWSSelectionChanged();
+		});
+	};
+	/** A click on the box of an in-cell checkbox toggles it. */
+	WorksheetView.prototype.toggleCheckboxAt = function (col, row) {
+		var mc = this.model.getMergedByCell(row, col);
+		if (mc) {
+			col = mc.c1;
+			row = mc.r1;
+		}
+		var state = this.model.getCheckbox(row, col);
+		if (state && !state.formula) {
+			this._setCheckboxValues([{row: row, col: col}], !state.checked);
+		}
+	};
+	/**
+	 * Space on an in-cell checkbox toggles the selected checkboxes: any unchecked -> all checked, else all unchecked.
+	 * @returns {boolean} true when the key was used (the active cell is a checkbox)
+	 */
+	WorksheetView.prototype.toggleSelectedCheckboxes = function () {
+		var activeCell = this.model.selectionRange.activeCell;
+		var state = this.model.getCheckbox(activeCell.row, activeCell.col);
+		if (!state) {
+			return false;
+		}
+		var ranges = this.model.selectionRange.ranges;
+		var cells = this._getCheckboxCells(ranges);
+		this._setCheckboxValues(cells, cells.some(function (cell) {
+			return !cell.checked;
+		}), ranges);
+		return true;
+	};
+	/**
+	 * Delete on a selection with checked checkboxes unchecks them and keeps everything else (Excel: "if all of the check
+	 * boxes were unchecked, they will be removed, otherwise they will become unchecked").
+	 * @returns {boolean} true when the checkboxes were unchecked instead of clearing the selection
+	 */
+	WorksheetView.prototype._uncheckSelectedCheckboxes = function () {
+		var ranges = this.model.selectionRange.ranges;
+		var checked = this._getCheckboxCells(ranges).filter(function (cell) {
+			return cell.checked;
+		});
+		if (!checked.length) {
+			return false;
+		}
+		this._setCheckboxValues(checked, false, ranges);
+		return true;
+	};
+	/**
+	 * Insert > Checkbox: checkbox format on the selection, FALSE in its empty cells (booleans and other values are kept;
+	 * only booleans display as checkboxes). Whole rows/columns get FALSE only inside the used range.
+	 */
+	WorksheetView.prototype.insertCheckboxes = function () {
+		var t = this, ws = this.model;
+		if (this.collaborativeEditing.getGlobalLock() || !this.workbook.canEdit()) {
+			return;
+		}
+		var ranges = this.model.selectionRange.ranges.map(function (range) {
+			return range.clone();
+		});
+		if (ws.getSheetProtection() && ranges.some(function (range) {
+			return ws.isLockedRange(range);
+		})) {
+			ws.workbook.handlers.trigger("asc_onError", c_oAscError.ID.ChangeOnProtectedSheet, c_oAscError.Level.NoCritical);
+			return;
+		}
+		this._isLockedCells(ranges, /*subType*/null, function (isSuccess) {
+			if (!isSuccess) {
+				return;
+			}
+			var value = new AscCommonExcel.CCellValue();
+			value.type = CellValueType.Bool;
+			value.number = 0;
+			History.Create_NewPoint();
+			History.StartTransaction();
+			ranges.forEach(function (range) {
+				ws.getRange3(range.r1, range.c1, range.r2, range.c2).setCheckbox(true);
+				// ponytail: one history item per empty cell; a huge explicit range (not whole rows/columns) is slow
+				var r2 = Math.min(range.r2, ws.getRowsCount() - 1), c2 = Math.min(range.c2, ws.getColsCount() - 1);
+				if (c_oAscSelectionType.RangeCells === range.getType()) {
+					r2 = range.r2;
+					c2 = range.c2;
+				}
+				for (var row = range.r1; row <= r2; ++row) {
+					for (var col = range.c1; col <= c2; ++col) {
+						var isEmpty = true, mc = ws.getMergedByCell(row, col);
+						ws._getCellNoEmpty(row, col, function (cell) {
+							isEmpty = !cell || cell.isNullText();
+						});
+						if (isEmpty && (!mc || (mc.r1 === row && mc.c1 === col))) {
+							ws._getCell(row, col, function (cell) {
+								cell.setValueData(new AscCommonExcel.UndoRedoData_CellValueData(null, value));
+							});
+						}
+					}
+				}
+			});
+			History.EndTransaction();
+			ranges.forEach(function (range) {
+				t._updateRange(range);
+			});
+			t.draw();
+			t.workbook._onWSSelectionChanged();
+		});
+	};
     WorksheetView.prototype._drawCellCF = function (ctx, cfIterator, c, row, col, top, width, height, offsetX, offsetY) {
 		var oDataBarRule = this._getCellCF(cfIterator, c, row, col, Asc.ECfType.dataBar);
 		var oIconSetRule = this._getCellCF(cfIterator, c, row, col, Asc.ECfType.iconSet);
@@ -6575,6 +6816,9 @@ function isAllowPasteLink(pastedWb) {
 
 		if (false === this.model.getSheetView().asc_getShowZeros() && c.getValue() === "0") {
 			return;
+		}
+		if (this.model.getCheckbox(row, col)) {
+			return;//the box is drawn with the cell background (_drawCellCheckbox)
 		}
 
 		var font = c.getFont();
@@ -12490,6 +12734,7 @@ function isAllowPasteLink(pastedWb) {
 				}
 			}
 			
+			var isCheckboxHit = false;
 			if (canEdit && readyMode) {
 				var _range = new asc_Range(c.col, r.row, c.col, r.row);
 				var pivotButtons = !this.model.inTopAutoFilter(_range) && this.model.getPivotTableButtons(_range);
@@ -12541,6 +12786,9 @@ function isAllowPasteLink(pastedWb) {
 								res = this._hitCursorTableSelectionChange(_offsetX, _offsetY, r.row, c.col);
 							}
 						}
+						if (!res) {
+							isCheckboxHit = this._hitCellCheckbox(_offsetX, _offsetY, c.col, r.row);
+						}
 					}
 					return (null === res);
 				});
@@ -12580,6 +12828,10 @@ function isAllowPasteLink(pastedWb) {
 				foreignSelectPosTop: foreignSelectPosTop,
 				shortIdForeignSelect: shortIdForeignSelect
 			};
+			if (isCheckboxHit) {
+				cellCursor.cursor = kCurHyperlink;
+				cellCursor.checkbox = true;//a click toggles the in-cell checkbox
+			}
 			if(!oHyperlink) {
 				if (t.traceDependentsManager && t.traceDependentsManager.isHaveData) {
 					/* we get the coordinates of all dependence lines and check whether the cursor hits */
@@ -16388,6 +16640,8 @@ function isAllowPasteLink(pastedWb) {
                     }
                 }
 			}
+		} else if (c_oAscCleanOptions.Text === options && this._uncheckSelectedCheckboxes()) {
+			// checked in-cell checkboxes were unchecked; the next Delete removes them
 		} else {
             this.setSelectionInfo( "empty", options, null, isMineComments );
         }
@@ -16767,6 +17021,9 @@ function isAllowPasteLink(pastedWb) {
 								break;
 							case c_oAscCleanOptions.Text:
 							case c_oAscCleanOptions.Formula:
+								if (c_oAscCleanOptions.Text === val && ws.hasCheckboxFormat(range.bbox)) {
+									range.setCheckbox(false);//Delete on unchecked checkboxes removes them
+								}
 							    range.cleanText();
 								t.model.deletePivotTables(range.bbox);
 								break;
@@ -29548,6 +29805,8 @@ function isAllowPasteLink(pastedWb) {
 
 				pastedRangeProps.hidden = newVal.getHidden();
 
+				pastedRangeProps.checkbox = !!newVal.getXfs().checkbox;
+
 				if (!t.ws.model.getSheetProtection()) {
 					pastedRangeProps.locked = newVal.getLocked();
 				}
@@ -30228,6 +30487,11 @@ function isAllowPasteLink(pastedWb) {
 		//hidden
 		if (rangeStyle.hidden !== undefined && specialPasteProps.format) {
 			range.setHiddenFormulas(rangeStyle.hidden);
+		}
+
+		//in-cell checkbox
+		if (rangeStyle.checkbox !== undefined && specialPasteProps.format && !!range.getXfs().checkbox !== rangeStyle.checkbox) {
+			range.setCheckbox(rangeStyle.checkbox);
 		}
 
 		//hyperLink

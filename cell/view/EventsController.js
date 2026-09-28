@@ -368,7 +368,7 @@
 			if (this.targetInfo && (this.targetInfo.target === c_oTargetType.MoveResizeRange ||
 				this.targetInfo.target === c_oTargetType.MoveRange ||
 				this.targetInfo.target === c_oTargetType.FilterObject ||
-				this.targetInfo.target === c_oTargetType.TableSelectionChange))
+				this.targetInfo.target === c_oTargetType.TableSelectionChange || this.targetInfo.checkbox))
 				return true;
 
 			if (t.getCellEditMode()) {
@@ -1235,6 +1235,11 @@
 							oThis.handlers.trigger("selectRowsByRange");
 							nRetValue = keydownresult_PreventAll;
 						}
+						if (!bIsSelectColumns && !bIsSelect && bCanEdit && !bSelectionDialogMode &&
+							oThis.handlers.trigger("toggleCheckboxes")) {
+							// Space on an in-cell checkbox toggles the selected checkboxes instead of typing
+							nRetValue = keydownresult_PreventAll;
+						}
 						break;
 					case 33: // PageUp
 						nDeltaRow = -0.5;
@@ -1451,6 +1456,11 @@
 
 			if (!this.getCellEditMode()) {
 				if (this.handlers.trigger("graphicObjectWindowEnterText", codePoints)) {
+					return true;
+				}
+				// Space on an in-cell checkbox toggles the selected checkboxes instead of typing (the text input sends a
+				// plain Space here, not to keydown)
+				if (1 === codePoints.length && 32 === codePoints[0] && this.handlers.trigger("toggleCheckboxes")) {
 					return true;
 				}
 
@@ -1727,7 +1737,8 @@
 			}
 
 
-			if (2 === event.detail) {
+			// a second click on an in-cell checkbox is a click (toggles back), not a double click
+			if (2 === event.detail && !(this.targetInfo && this.targetInfo.checkbox)) {
 				// This means that it is MouseDown for dblClick event (it does not need to be processed)
 				// The order of events for dblClick is http://javascript.ru/tutorial/events/mouse#dvoynoy-levyy-klik
 
@@ -1876,6 +1887,9 @@
 						this.isSelectMode = true;
 						this.handlers.trigger("changeSelection", /*isStartPoint*/true, coord.x, coord.y, /*isCoord*/true,
 							ctrlKey);
+						if (this.targetInfo && this.targetInfo.checkbox && !ctrlKey && this.canEdit()) {
+							this.handlers.trigger("toggleCheckboxAt", this.targetInfo.col, this.targetInfo.row);
+						}
 					}
 				}
 			}

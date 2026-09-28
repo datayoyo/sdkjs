@@ -6521,6 +6521,14 @@ var editor;
     this.wb.restoreFocus();
   };
 
+  // Insert > Checkbox: in-cell checkbox format on the selection, FALSE in its empty cells
+  spreadsheet_api.prototype.asc_insertCheckbox = function () {
+    if (this.wb && !this.wb.getCellEditMode()) {
+      this.wb.getWorksheet().insertCheckboxes();
+      this.wb.restoreFocus();
+    }
+  };
+
   spreadsheet_api.prototype.asc_setCellLocked = function (val) {
     this.wb.getWorksheet().setSelectionInfo("locked", val);
     this.wb.restoreFocus();
@@ -10274,6 +10282,7 @@ var editor;
   prot["asc_addImageDrawingObject"] = prot.asc_addImageDrawingObject;
   prot["asc_addImageInCell"] = prot.asc_addImageInCell;
   prot["asc_addImageInCellUrl"] = prot.asc_addImageInCellUrl;
+  prot["asc_insertCheckbox"] = prot.asc_insertCheckbox;
   prot["asc_getCurrentDrawingMacrosName"] = prot.asc_getCurrentDrawingMacrosName;
   prot["asc_assignMacrosToCurrentDrawing"] = prot.asc_assignMacrosToCurrentDrawing;
   prot["asc_setSelectedDrawingObjectLayer"] = prot.asc_setSelectedDrawingObjectLayer;

@@ -164,6 +164,7 @@ function (window, undefined) {
 	window['AscCH'].historyitem_RowCol_Locked = 23;
 	window['AscCH'].historyitem_RowCol_HiddenFormulas = 24;
 	window['AscCH'].historyitem_RowCol_ReadingOrder = 25;
+	window['AscCH'].historyitem_RowCol_Checkbox = 26;
 
 	window['AscCH'].historyitem_Cell_Fontname = 1;
 	window['AscCH'].historyitem_Cell_Fontsize = 2;
@@ -195,6 +196,7 @@ function (window, undefined) {
 	window['AscCH'].historyitem_Cell_SetHidden = 29;
 	window['AscCH'].historyitem_Cell_SetLocked = 30;
 	window['AscCH'].historyitem_Cell_ReadingOrder = 31;
+	window['AscCH'].historyitem_Cell_SetCheckbox = 32;
 
 	window['AscCH'].historyitem_Comment_Add = 1;
 	window['AscCH'].historyitem_Comment_Remove = 2;

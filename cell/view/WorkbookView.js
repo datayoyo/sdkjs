@@ -467,6 +467,11 @@
 				  return self.Api.isRestrictionComments();
 			  }, "empty": function () {
 				  self._onEmpty.apply(self, arguments);
+			  }, "toggleCheckboxAt": function (col, row) {
+				  self.getWorksheet().toggleCheckboxAt(col, row);
+			  }, "toggleCheckboxes": function () {
+				  var ws = self.getWorksheet();
+				  return !ws.objectRender.selectedGraphicObjectsExists() && ws.toggleSelectedCheckboxes();
 			  }, "undo": function () {
 				  self.undo.apply(self, arguments);
 			  }, "redo": function () {
