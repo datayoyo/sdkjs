@@ -313,7 +313,12 @@
         XmlMap: 30,
         RdRichValue: 31,
         RdRichValueStructure: 32,
-        RdRichValueTypes: 33
+        RdRichValueTypes: 33,
+        RichValueRels: 34
+    };
+    /** @enum */
+    var c_oSer_RichValueRels = {
+        Rel: 0
     };
     /** @enum */
     var c_oSerWorkbookPrTypes =
@@ -3924,6 +3929,15 @@
 			}
 			if (this.wb.richValueTypesInfo && AscCommonExcel.bIsSupportDynamicArrays) {
 				this.bs.WriteItem(c_oSerWorkbookTypes.RdRichValueTypes, function () {oThis.WriteRichValueTypes(oThis.wb.richValueTypesInfo);});
+			}
+			if (this.wb.richValueRels && this.wb.richValueRels.rels.length > 0) {
+				this.bs.WriteItem(c_oSerWorkbookTypes.RichValueRels, function () {
+					let rels = oThis.wb.richValueRels.rels;
+					for (let i = 0; i < rels.length; ++i) {
+						oThis.memory.WriteByte(c_oSer_RichValueRels.Rel);
+						oThis.memory.WriteString2(rels[i] || "");
+					}
+				});
 			}
         };
         this.WriteWorkbookPr = function()
@@ -9593,9 +9607,11 @@
         this.Read = function()
         {
             var oThis = this;
-            return this.bcr.ReadTable(function(t, l){
+            var res = this.bcr.ReadTable(function(t, l){
                 return oThis.ReadWorkbookContent(t,l);
             });
+            this.oWorkbook.normalizeCellImages && this.oWorkbook.normalizeCellImages();
+            return res;
         };
         this.ReadWorkbookContent = function(type, length)
         {
@@ -9799,6 +9815,15 @@
                 this.oWorkbook.richValueTypesInfo = new AscCommonExcel.CRichValueTypesInfo();
                 res = this.bcr.Read1(length, function (t, l) {
                     return oThis.ReadRichValueTypesInfo(t, l, oThis.oWorkbook.richValueTypesInfo);
+                });
+            } else if (c_oSerWorkbookTypes.RichValueRels === type) {
+                let richValueRels = this.oWorkbook.richValueRels = new AscCommonExcel.CRichValueRels();
+                res = this.bcr.Read1(length, function (t, l) {
+                    if (c_oSer_RichValueRels.Rel !== t) {
+                        return c_oSerConstants.ReadUnknown;
+                    }
+                    richValueRels.rels.push(oThis.stream.GetString2LE(l));
+                    return c_oSerConstants.ReadOk;
                 });
             }
             else

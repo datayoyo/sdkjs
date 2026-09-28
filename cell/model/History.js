@@ -66,6 +66,7 @@ function (window, undefined) {
 	window['AscCH'].historyitem_Workbook_RichValueStructures = 22;
 	window['AscCH'].historyitem_Workbook_RichValueTypesInfo = 23;
 	window['AscCH'].historyitem_Workbook_RichValueData = 24;
+	window['AscCH'].historyitem_Workbook_RichValueRels = 25;
 
 	window['AscCH'].historyitem_Worksheet_RemoveCell = 1;
 	window['AscCH'].historyitem_Worksheet_RemoveRows = 2;

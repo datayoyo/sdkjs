@@ -684,6 +684,7 @@ function (window, undefined) {
 		this.RichValueStructures = 196;
 		this.RichValueTypesInfo = 197;
 		this.RichValueData = 198;
+		this.RichValueRels = 199;
 
 		this.Create = function (nType) {
 			switch (nType) {
@@ -870,6 +871,8 @@ function (window, undefined) {
 					return new AscCommonExcel.CRichValueTypesInfo();
 				case this.RichValueData:
 					return new AscCommonExcel.CRichValueData();
+				case this.RichValueRels:
+					return new AscCommonExcel.CRichValueRels();
 			}
 			return null;
 		};
@@ -3228,6 +3231,14 @@ function (window, undefined) {
 			wb.richValueTypesInfo = bUndo ? (Data.from ? Data.from.clone(): null) : (Data.to ? Data.to.clone(): null);
 		} else if (AscCH.historyitem_Workbook_RichValueData === Type) {
 			wb.richValueData = bUndo ? (Data.from ? Data.from.clone(): null) : (Data.to ? Data.to.clone(): null);
+		} else if (AscCH.historyitem_Workbook_RichValueRels === Type) {
+			wb.richValueRels = bUndo ? (Data.from ? Data.from.clone(): null) : (Data.to ? Data.to.clone(): null);
+			if (wb.bCollaborativeChanges && wb.richValueRels) {
+				//media uploaded by another user: ask the server for its url (Load_Images after applying changes)
+				wb.richValueRels.rels.forEach(function (media) {
+					media && !AscCommon.g_oDocumentUrls.getImageUrl(media) && AscCommon.CollaborativeEditing.Add_NewImage(media);
+				});
+			}
 		}
 	};
 	UndoRedoWorkbook.prototype.forwardTransformationIsAffect = function (Type) {

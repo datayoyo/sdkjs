@@ -431,6 +431,8 @@ function isAllowPasteLink(pastedWb) {
      * @memberOf Asc
      */
 	function WorksheetView(workbook, model, handlers, buffers, stringRender, maxDigitWidth, collaborativeEditing, settings) {
+		this._cellImagesRequested = {};//picture in cell: urls already requested from ImageLoader
+
 		this.settings = settings;
 
 		this.workbook = workbook;
@@ -6211,6 +6213,9 @@ function isAllowPasteLink(pastedWb) {
 				}
 			}
 
+			if (this._drawCellImage(ctx, row, col, top, width + mwidth, height + mheight, offsetX, offsetY)) {
+				continue;
+			}
 			var showValue = this._drawCellCF(ctx, cfIterator, c, row, col, top, width + mwidth, height + mheight, offsetX, offsetY);
 			if (showValue) {
 				drawCells[col] = 1;
@@ -6449,6 +6454,81 @@ function isAllowPasteLink(pastedWb) {
 
 			}, this, [img, rect, iconSize * dScale * this.getZoom()]
 		);
+	};
+	/**
+	 * Picture in cell: draws the image fitted into the cell (aspect kept, centered) instead of the cell value.
+	 * @returns {boolean} true when the cell holds a picture (its value text is not drawn)
+	 */
+	WorksheetView.prototype._drawCellImage = function (ctx, row, col, top, width, height, offsetX, offsetY) {
+		if (!this.model.workbook.richValueRels) {
+			return false;//no pictures in cells in this workbook: skip the per-cell lookup
+		}
+		var cellImage = this.model.getCellImage(row, col);
+		if (!cellImage) {
+			return false;
+		}
+		var api = window["Asc"]["editor"];
+		var src = AscCommon.getFullImageSrc2(cellImage.src);
+		var loaded = api.ImageLoader.map_image_index[src];
+		var img = loaded && loaded.Status === AscFonts.ImageLoadStatus.Complete ? loaded.Image : null;
+		// load once, and only a resolved url (media of another user gets its url after the changes are applied)
+		if (!loaded && src !== cellImage.src && !this._cellImagesRequested[src]) {
+			var t = this;
+			this._cellImagesRequested[src] = true;
+			api.ImageLoader.LoadImagesWithCallback([src], function () {
+				t.draw();
+			});
+		}
+		var pad = 2;
+		var x = this._getColLeft(col) - offsetX + pad;
+		var y = top - offsetY + pad;
+		var w = width - 2 * pad, h = height - 2 * pad;
+		if (this.getRightToLeft()) {
+			x = this.getCtxWidth(ctx) - x - w;
+		}
+		if (!img || !img.width || !img.height || w <= 0 || h <= 0) {
+			return true;//placeholder: empty cell until the media is loaded
+		}
+		var scale = Math.min(w / img.width, h / img.height);
+		var dw = img.width * scale, dh = img.height * scale;
+		var dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+		if (ctx instanceof AscCommonExcel.CPdfPrinter) {
+			ctx.drawImage(src, 0, 0, img.width, img.height, dx, dy, dw, dh, img.width, img.height);
+		} else {
+			ctx.drawImage(img, 0, 0, img.width, img.height, dx, dy, dw, dh);
+		}
+		return true;
+	};
+	/**
+	 * Picture in cell: places uploaded media ("xxx.png", document media names) in cells going down the column from the active
+	 * cell, one history point (Excel: multiple pictures fill the column and overwrite values).
+	 */
+	WorksheetView.prototype.placeImagesInCells = function (mediaPaths, alt) {
+		var t = this;
+		var active = this.model.selectionRange.activeCell;
+		var names = mediaPaths.slice(0, AscCommon.gc_nMaxRow0 - active.row + 1);
+		if (!names.length) {
+			return;
+		}
+		var range = new asc_Range(active.col, active.row, active.col, active.row + names.length - 1);
+		if (this.model.getSheetProtection() && this.model.isLockedRange(range)) {
+			this.model.workbook.handlers.trigger("asc_onError", c_oAscError.ID.ChangeOnProtectedSheet, c_oAscError.Level.NoCritical);
+			return;
+		}
+		this._isLockedCells(range, /*subType*/null, function (isSuccess) {
+			if (!isSuccess) {
+				return;
+			}
+			History.Create_NewPoint();
+			History.StartTransaction();
+			for (var i = 0; i < names.length; ++i) {
+				t.model.setCellImage(range.r1 + i, range.c1, names[i], alt);
+			}
+			History.EndTransaction();
+			t._updateRange(range);
+			t.draw();
+			t.workbook._onWSSelectionChanged();
+		});
 	};
     WorksheetView.prototype._drawCellCF = function (ctx, cfIterator, c, row, col, top, width, height, offsetX, offsetY) {
 		var oDataBarRule = this._getCellCF(cfIterator, c, row, col, Asc.ECfType.dataBar);
@@ -13685,6 +13765,10 @@ function isAllowPasteLink(pastedWb) {
 
 		AscCommonExcel.g_ActiveCell = new Asc.Range(c1, r1, c1, r1);
         cell_info.text = c.getValueForEdit(true);
+        cell_info.cellImage = this.model.getCellImage(r1, c1);
+        if (cell_info.cellImage) {
+            cell_info.text = "";//a placed picture has no editable value (Excel shows an empty formula bar)
+        }
 
         var tablePartsOptions = selectionRange.isSingleRange() ?
           this.model.autoFilters.searchRangeInTableParts(selectionRange.getLast()) : -2;

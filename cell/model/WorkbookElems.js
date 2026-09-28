@@ -7379,7 +7379,8 @@ var g_oCCellValueProperties = {
 		text: 0,
 		multiText: 1,
 		number: 2,
-		type: 3
+		type: 3,
+		vm: 4
 	};
 
 function CCellValue(opt_cell)
@@ -7389,11 +7390,13 @@ function CCellValue(opt_cell)
 		this.multiText = opt_cell.multiText;
 		this.number = opt_cell.number;
 		this.type = opt_cell.type;
+		this.vm = opt_cell.vm || null;
 	} else {
 		this.text = null;
 		this.multiText = null;
 		this.number = null;
 		this.type = CellValueType.Number;
+		this.vm = null;
 	}
 }
 CCellValue.prototype =
@@ -7408,6 +7411,8 @@ CCellValue.prototype =
 		if(this.number != val.number)
 			return false;
 		if(this.type != val.type)
+			return false;
+		if((this.vm || null) != (val.vm || null))
 			return false;
 		if(null != this.multiText && null != val.multiText)
 		{
@@ -7447,6 +7452,7 @@ CCellValue.prototype =
 			case this.Properties.multiText: return this.multiText;break;
 			case this.Properties.number: return this.number;break;
 			case this.Properties.type: return this.type;break;
+			case this.Properties.vm: return this.vm;break;
 		}
 	},
 	setProperty : function(nType, value)
@@ -7457,6 +7463,7 @@ CCellValue.prototype =
 			case this.Properties.multiText: this.multiText = value;break;
 			case this.Properties.number: this.number = value;break;
 			case this.Properties.type: this.type = value;break;
+			case this.Properties.vm: this.vm = value;break;
 		}
 	},
 	getTextValue : function(num)
@@ -18609,7 +18616,7 @@ function RangeDataManagerElem(bbox, data)
 		if (metadataTypes) {
 			for (let i = 0; i < metadataTypes.length; i++) {
 				if (metadataTypes[i].name === sType) {
-					return this.aFutureMetadata[i];
+					return metadataTypes[i];
 				}
 			}
 		}
@@ -18661,12 +18668,18 @@ function RangeDataManagerElem(bbox, data)
 		}
 		return futureMetadata;
 	};
+	// 1-based position of a metadata type (rc/@t); types are not necessarily in creation order
+	CMetadata.prototype._getMetadataTypeNumber = function (sType) {
+		return this.metadataTypes.findIndex(function (mt) {
+			return mt.name === sType;
+		}) + 1;
+	};
 	CMetadata.prototype.addCellMetadataBlock = function (metadataType, futureMetadata) {
 		if (!this.cellMetadata) {
 			this.cellMetadata = [];
 		}
 		const cellMetadataBlock = new CMetadataRecord();
-		cellMetadataBlock.t = this.metadataTypes.length;
+		cellMetadataBlock.t = this._getMetadataTypeNumber(futureMetadata.name);
 		cellMetadataBlock.v = futureMetadata.futureMetadataBlocks.length - 1;
 		this.cellMetadata.push(cellMetadataBlock);
 		return cellMetadataBlock;
@@ -18676,7 +18689,7 @@ function RangeDataManagerElem(bbox, data)
 			this.valueMetadata = [];
 		}
 		const valueMetadataBlock = new CMetadataRecord();
-		valueMetadataBlock.t = this.metadataTypes.length;
+		valueMetadataBlock.t = this._getMetadataTypeNumber(futureMetadata.name);
 		valueMetadataBlock.v = futureMetadata.futureMetadataBlocks.length - 1;
 		this.valueMetadata.push(valueMetadataBlock);
 		return valueMetadataBlock;
@@ -22000,6 +22013,31 @@ function RangeDataManagerElem(bbox, data)
 		}
 	};
 
+	// xl/richData/richValueRel.xml: media file names ("image1.png") addressed by _rvRel:LocalImageIdentifier
+	function CRichValueRels() {
+		this.rels = [];
+	}
+	CRichValueRels.prototype.getType = function () {
+		return UndoRedoDataTypes.RichValueRels;
+	};
+	CRichValueRels.prototype.clone = function () {
+		let res = new CRichValueRels();
+		res.rels = this.rels.slice();
+		return res;
+	};
+	CRichValueRels.prototype.Read_FromBinary2 = function (r) {
+		let length = r.GetLong();
+		for (let i = 0; i < length; ++i) {
+			this.rels.push(r.GetString2());
+		}
+	};
+	CRichValueRels.prototype.Write_ToBinary2 = function (w) {
+		w.WriteLong(this.rels.length);
+		for (let i = 0; i < this.rels.length; ++i) {
+			w.WriteString2(this.rels[i]);
+		}
+	};
+
 	function CRichValueBlock() {
 		this.i = null;
 	}
@@ -22622,5 +22660,6 @@ function RangeDataManagerElem(bbox, data)
 	window["AscCommonExcel"].CRichValueFallback = CRichValueFallback;
 	window["AscCommonExcel"].CRichValue = CRichValue;
 	window["AscCommonExcel"].CRichValueData = CRichValueData;
+	window["AscCommonExcel"].CRichValueRels = CRichValueRels;
 
 })(window);

@@ -4302,6 +4302,229 @@
 		});
 		return aImageUrls;
 	};
+	/**
+	 * Picture in cell: resolves a value-metadata index (cell vm, 1-based) through
+	 * valueMetadata -> futureMetadata[XLRICHVALUE] -> rvb -> rv -> _localImage structure -> richValueRel.
+	 * @returns {{src: string, alt: string}|null}
+	 */
+	Workbook.prototype.getCellImage = function (vm) {
+		let meta = this.metadata;
+		let rec = vm && meta && meta.valueMetadata && meta.valueMetadata[vm - 1];
+		let type = rec && meta.metadataTypes && meta.metadataTypes[rec.t - 1];
+		if (!type || type.name !== "XLRICHVALUE") {
+			return null;
+		}
+		let future = meta.getFutureMetadataByType("XLRICHVALUE");
+		let block = future && future.futureMetadataBlocks && future.futureMetadataBlocks[rec.v];
+		let ext = block && block.extLst && block.extLst[0];
+		let rv = ext && ext.richValueBlock && this.richValueData && this.richValueData.pData[ext.richValueBlock.i];
+		let structure = rv && this.richValueStructures && this.richValueStructures.children[rv.s];
+		if (!structure || structure.t !== "_localImage") {
+			return null;
+		}
+		let relKey = structure.getOptionByName("_rvRel:LocalImageIdentifier");
+		let media = relKey && this.richValueRels && this.richValueRels.rels[rv.arrV[relKey.index] >> 0];
+		if (!media) {
+			return null;
+		}
+		let textKey = structure.getOptionByName("Text");
+		return {src: media, alt: (textKey && rv.arrV[textKey.index]) || ""};//src: image id as drawings use it ("image1.png")
+	};
+	/** rdRichValueTypes.xml as Excel writes it (reserved key flags); shared by dynamic arrays and pictures in cells */
+	Workbook.prototype.ensureRichValueTypesInfo = function () {
+		if (!this.richValueTypesInfo) {
+			const oldRichValueTypesInfo = null;
+		
+			this.richValueTypesInfo = new AscCommonExcel.CRichValueTypesInfo();
+		
+			// Create global type
+			this.richValueTypesInfo.global = new AscCommonExcel.CRichValueGlobalType();
+			this.richValueTypesInfo.global.keyFlags = new AscCommonExcel.CRichValueTypeKeyFlags();
+			this.richValueTypesInfo.global.keyFlags.arrItems = [];
+		
+			// Create reserved keys array
+			const reservedKeys = [
+				{name: "_Self", flags: [{name: "ExcludeFromFile", value: true}, {name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_DisplayString", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_Flags", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_Format", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_SubLabel", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_Attribution", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_Icon", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_Display", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_CanonicalPropertyNames", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
+				{name: "_ClassificationId", flags: [{name: "ExcludeFromCalcComparison", value: true}]}
+			];
+		
+			for (let i = 0; i < reservedKeys.length; i++) {
+				const reservedKey = new AscCommonExcel.CRichValueTypeReservedKey();
+				reservedKey.name = reservedKeys[i].name;
+				reservedKey.arrItems = [];
+			
+				for (let j = 0; j < reservedKeys[i].flags.length; j++) {
+					const flag = new AscCommonExcel.CRichValueTypeReservedKeyFlag();
+					flag.name = reservedKeys[i].flags[j].name;
+					flag.value = reservedKeys[i].flags[j].value;
+					reservedKey.arrItems.push(flag);
+				}
+			
+				this.richValueTypesInfo.global.keyFlags.arrItems.push(reservedKey);
+			}
+		
+			// Add to history
+			const newRichValueTypesInfo = this.richValueTypesInfo.clone();
+			AscCommon.History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueTypesInfo,
+				null, null, new UndoRedoData_FromTo(oldRichValueTypesInfo, newRichValueTypesInfo));
+		}
+	};
+	/**
+	 * Picture in cell: finds or appends the rel, _localImage structure, rich value and value-metadata block
+	 * for a media file ("image1.png") and returns its vm (1-based). Collections travel as history snapshots.
+	 */
+	Workbook.prototype.addCellImage = function (mediaName, alt) {
+		const oldRels = this.richValueRels ? this.richValueRels.clone() : null;
+		const oldStructures = this.richValueStructures ? this.richValueStructures.clone() : null;
+		const oldData = this.richValueData ? this.richValueData.clone() : null;
+		const oldMetadata = this.metadata ? this.metadata.clone() : null;
+
+		if (!this.richValueRels) {
+			this.richValueRels = new AscCommonExcel.CRichValueRels();
+		}
+		if (!this.richValueStructures) {
+			this.richValueStructures = new AscCommonExcel.CRichValueStructures();
+		}
+		if (!this.richValueData) {
+			this.richValueData = new AscCommonExcel.CRichValueData();
+		}
+		if (!this.metadata) {
+			this.metadata = new AscCommonExcel.CMetadata();
+		}
+
+		let rels = this.richValueRels.rels;
+		let relIndex = rels.indexOf(mediaName);
+		if (relIndex < 0) {
+			relIndex = rels.push(mediaName) - 1;
+		}
+
+		// exact key list, as Excel writes it: LocalImageIdentifier (i), CalcOrigin (i), optional Text (s)
+		let keys = [["_rvRel:LocalImageIdentifier", 4], ["CalcOrigin", 4]];
+		let values = [String(relIndex), "5"];//CalcOrigin 5 = Standalone (inserted picture)
+		if (alt) {
+			keys.push(["Text", 3]);
+			values.push(alt);
+		}
+		let structures = this.richValueStructures.children;
+		let sIndex = structures.findIndex(function (st) {
+			return st.t === "_localImage" && st.children.length === keys.length && keys.every(function (k, i) {
+				return st.children[i].n === k[0] && st.children[i].t === k[1];
+			});
+		});
+		if (sIndex < 0) {
+			let st = new AscCommonExcel.CRichValueStructure();
+			st.t = "_localImage";
+			keys.forEach(function (k) {
+				let key = new AscCommonExcel.CRichValueKey();
+				key.n = k[0];
+				key.t = k[1];
+				st.children.push(key);
+			});
+			sIndex = structures.push(st) - 1;
+		}
+
+		let pData = this.richValueData.pData;
+		let rvIndex = pData.findIndex(function (rv) {
+			return rv.s === sIndex && rv.arrV.length === values.length && values.every(function (v, i) {
+				return rv.arrV[i] === v;
+			});
+		});
+		if (rvIndex < 0) {
+			let rv = new AscCommonExcel.CRichValue();
+			rv.s = sIndex;
+			rv.arrV = values;
+			rvIndex = pData.push(rv) - 1;
+		}
+
+		let meta = this.metadata;
+		meta.getOrCreateMetadataType("XLRICHVALUE");
+		let typeIndex = meta.metadataTypes.findIndex(function (mt) {
+			return mt.name === "XLRICHVALUE";
+		}) + 1;
+		let future = meta.getOrCreateFutureMetadata("XLRICHVALUE");
+		if (!meta.valueMetadata) {
+			meta.valueMetadata = [];
+		}
+		let vm = meta.valueMetadata.findIndex(function (rec) {
+			let block = rec.t === typeIndex && future.futureMetadataBlocks[rec.v];
+			let ext = block && block.extLst && block.extLst[0];
+			return ext && ext.richValueBlock && ext.richValueBlock.i === rvIndex;
+		}) + 1;
+		if (!vm) {
+			let richValueBlock = new AscCommonExcel.CRichValueBlock();
+			richValueBlock.i = rvIndex;
+			let extBlock = new AscCommonExcel.CMetadataBlockExt();
+			extBlock.uri = "{3e2802c4-a4d2-4d8b-9148-e3be6c30e623}";
+			extBlock.richValueBlock = richValueBlock;
+			let futureBlock = new AscCommonExcel.CFutureMetadataBlock();
+			futureBlock.extLst = [extBlock];
+			let rec = new AscCommonExcel.CMetadataRecord();
+			rec.t = typeIndex;
+			rec.v = future.futureMetadataBlocks.push(futureBlock) - 1;
+			vm = meta.valueMetadata.push(rec);
+		}
+
+		this.ensureRichValueTypesInfo();
+		const History = AscCommon.History;
+		History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueRels, null, null,
+			new UndoRedoData_FromTo(oldRels, this.richValueRels.clone()));
+		History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueStructures, null, null,
+			new UndoRedoData_FromTo(oldStructures, this.richValueStructures.clone()));
+		History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueData, null, null,
+			new UndoRedoData_FromTo(oldData, this.richValueData.clone()));
+		History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_Metadata, null, null,
+			new UndoRedoData_FromTo(oldMetadata, this.metadata.clone()));
+		return vm;
+	};
+	/**
+	 * Picture in cell, at load: a _localImage rich value with fewer values than its structure has keys (some
+	 * writers omit a trailing optional Text) is re-pointed to a structure with exactly its keys, as Excel writes
+	 * it; Excel repairs away the rich data otherwise. Deterministic, so every client and the converter agree.
+	 */
+	Workbook.prototype.normalizeCellImages = function () {
+		let structures = this.richValueStructures && this.richValueStructures.children;
+		let pData = this.richValueData && this.richValueData.pData;
+		if (!structures || !pData) {
+			return;
+		}
+		for (let i = 0; i < pData.length; ++i) {
+			let rv = pData[i], st = structures[rv.s];
+			if (!st || st.t !== "_localImage" || rv.arrV.length >= st.children.length) {
+				continue;
+			}
+			let keys = st.children.slice(0, rv.arrV.length);
+			let s = structures.findIndex(function (other) {
+				return other.t === "_localImage" && other.children.length === keys.length && keys.every(function (k, j) {
+					return other.children[j].n === k.n && other.children[j].t === k.t;
+				});
+			});
+			if (s < 0) {
+				let copy = new AscCommonExcel.CRichValueStructure();
+				copy.t = "_localImage";
+				copy.children = keys.map(function (k) {
+					return k.clone();
+				});
+				s = structures.push(copy) - 1;
+			}
+			rv.s = s;
+		}
+	};
+	Workbook.prototype.getCellImageUrls = function () {
+		let res = [];
+		let rels = this.richValueRels ? this.richValueRels.rels : [];
+		for (let i = 0; i < rels.length; ++i) {
+			rels[i] && res.push(rels[i]);
+		}
+		return res;
+	};
 	Workbook.prototype.reassignImageUrls = function(oImages){
 		this.forEach(function (ws) {
 			ws.reassignImageUrls(oImages);
@@ -9350,6 +9573,25 @@
 		//init ColData otherwise all 'foreach' will not return this cell until saveContent(loadCells)
 		var sheetMemory = this.getColData(nCol);
 		sheetMemory.checkIndex(nRow);
+	};
+	/** @returns {{src: string, alt: string}|null} picture placed in a (non-formula) cell */
+	Worksheet.prototype.getCellImage = function (row, col) {
+		let vm = null;
+		this._getCellNoEmpty(row, col, function (cell) {
+			vm = cell && !cell.formulaParsed ? cell.vm : null;
+		});
+		return vm ? this.workbook.getCellImage(vm) : null;
+	};
+	/** Places a picture ("image1.png" in the document media) in a cell; the caller opens the history point */
+	Worksheet.prototype.setCellImage = function (row, col, mediaName, alt) {
+		let vm = this.workbook.addCellImage(mediaName, alt);
+		let value = new AscCommonExcel.CCellValue();
+		value.type = CellValueType.Error;
+		value.text = "#VALUE!";//what Excel stores; readers without rich data show it
+		value.vm = vm;
+		this._getCell(row, col, function (cell) {
+			cell.setValueData(new UndoRedoData_CellValueData(null, value));
+		});
 	};
 	Worksheet.prototype._getCellNoEmpty=function(row, col, fAction){
 		var wb = this.workbook;
@@ -15038,6 +15280,7 @@
 		this.text = null;
 		this.multiText = null;
 		this.textIndex = null;
+		this.vm = null;//1-based valueMetadata index of a non-formula cell (picture in cell)
 
 		this.isDirty = false;
 		this.isCalc = false;
@@ -15060,6 +15303,7 @@
 		this.text = null;
 		this.multiText = null;
 		this.textIndex = null;
+		this.vm = null;
 
 		this.isDirty = false;
 		this.isCalc = false;
@@ -15097,10 +15341,12 @@
 				sheetMemory.setInt32(this.nRow, 4, formulaSave);
 				numberSave = this.getTextIndex();
 				sheetMemory.setInt32(this.nRow, 8, numberSave);
+				sheetMemory.setInt32(this.nRow, 12, this.vm || 0);
 			} else {
 				const flags = this._toFlags(flagValue);
 				sheetMemory.setInt32(this.nRow, 0, xfSave | (flags << 24));
 				sheetMemory.setInt32(this.nRow, 4, formulaSave);
+				sheetMemory.setInt32(this.nRow, 12, this.vm || 0);
 			}
 		}
 	};
@@ -15136,6 +15382,9 @@
 					this.textIndex = sheetMemory.getInt32(this.nRow, 8);
 					const text = wb.sharedStrings.get(this.textIndex);
 					typeof text === 'string' ? this.text = text : this.multiText = text;
+				}
+				if (1 !== flagValue) {
+					this.vm = sheetMemory.getInt32(this.nRow, 12) || null;
 				}
 				res = true;
 			}
@@ -17347,6 +17596,7 @@
 		this.text = null;
 		this.multiText = null;
 		this.textIndex = null;
+		this.vm = null;
 		this.type = CellValueType.Number;
 		this._hasChanged = true;
 	};
@@ -17368,6 +17618,7 @@
 		this.multiText = val.multiText;
 		this.textIndex = null;
 		this.type = val.type;
+		this.vm = val.vm || null;
 		this._hasChanged = true;
 	};
 	Cell.prototype._getValue2 = function(dDigitsCount, fIsFitMeasurer, opt_numFormat, opt_cultureInfo, opt_AffectingText) {
@@ -18001,8 +18252,12 @@
 		if (0 !== (nFlags2 & 0x4000000))
 		{
 			let _vm = stream.GetULong();
-			if (tmp.formula && AscCommonExcel.bIsSupportDynamicArrays) {
-				tmp.formula.vm = _vm;
+			if (AscCommonExcel.XLSB.rt_FMLA_STRING <= type && type <= AscCommonExcel.XLSB.rt_FMLA_ERROR) {
+				if (tmp.formula && AscCommonExcel.bIsSupportDynamicArrays) {
+					tmp.formula.vm = _vm;
+				}
+			} else {
+				this.vm = _vm;
 			}
 		}
 
@@ -18144,7 +18399,8 @@
 			nFlags2 |= 0x2000000;
 			len += 4;
 		}
-		if (formulaToWrite && formulaToWrite.vm != null && AscCommonExcel.bIsSupportDynamicArrays) {
+		let vmToWrite = formulaToWrite ? (AscCommonExcel.bIsSupportDynamicArrays ? formulaToWrite.vm : null) : this.vm;
+		if (vmToWrite != null) {
 			nFlags2 |= 0x4000000;
 			len += 4;
 		}
@@ -18224,8 +18480,8 @@
 		if (formulaToWrite && formulaToWrite.cm != null && AscCommonExcel.bIsSupportDynamicArrays) {
 			stream.WriteULong(formulaToWrite.cm);
 		}
-		if (formulaToWrite && formulaToWrite.vm != null && AscCommonExcel.bIsSupportDynamicArrays) {
-			stream.WriteULong(formulaToWrite.vm);
+		if (vmToWrite != null) {
+			stream.WriteULong(vmToWrite);
 		}
 
 		stream.XlsbEndRecord();
@@ -26111,8 +26367,9 @@
 			if (richValueData) {
 				let rvIndex = richValueBlock.i;
 				let richValue = richValueData.getRichValue(rvIndex);
-				let offsetRow = richValue.getRowOffset(this.ws.workbook.richValueStructures && this.ws.workbook.richValueStructures.getValueStructure(0));
-				let offsetCol = richValue.getColOffset(this.ws.workbook.richValueStructures && this.ws.workbook.richValueStructures.getValueStructure(0));
+				let structure = this.ws.workbook.richValueStructures && this.ws.workbook.richValueStructures.getValueStructure(richValue.s);
+				let offsetRow = richValue.getRowOffset(structure);
+				let offsetCol = richValue.getColOffset(structure);
 				if (offsetRow != null && offsetCol != null) {
 					return new AscCommon.CellBase(offsetRow - 0, offsetCol - 0);
 				}
@@ -26319,92 +26576,38 @@
 			const metadataType = meta.getOrCreateMetadataType("XLRICHVALUE");
 			const futureMetadata = meta.getOrCreateFutureMetadata("XLRICHVALUE");
 
-			// Initialize richValueStructures if needed
-			if (!this.ws.workbook.richValueStructures) {
-				const oldRichValueStructures = null;
-				
-				this.ws.workbook.richValueStructures = new AscCommonExcel.CRichValueStructures();
-				this.ws.workbook.richValueStructures.children = [];
-				
-				// Create _error structure
+			// _error structure, found by its exact keys (the workbook may already hold other structures, e.g. _localImage)
+			const errorKeys = ["colOffset", "errorType", "rwOffset", "subType"];
+			const findErrorStructure = function (structures) {
+				return structures ? structures.children.findIndex(function (st) {
+					return st.t === "_error" && st.children.length === errorKeys.length && errorKeys.every(function (n, i) {
+						return st.children[i].n === n;
+					});
+				}) : -1;
+			};
+			let errorStructureIndex = findErrorStructure(this.ws.workbook.richValueStructures);
+			if (errorStructureIndex < 0) {
+				const oldRichValueStructures = this.ws.workbook.richValueStructures ? this.ws.workbook.richValueStructures.clone() : null;
+				if (!this.ws.workbook.richValueStructures) {
+					this.ws.workbook.richValueStructures = new AscCommonExcel.CRichValueStructures();
+				}
 				const errorStructure = new AscCommonExcel.CRichValueStructure();
 				errorStructure.t = "_error";
-				errorStructure.children = [];
-				
-				// Add children keys for error structure
-				const colOffsetKey = new AscCommonExcel.CRichValueKey();
-				colOffsetKey.t = 4;
-				colOffsetKey.n = "colOffset";
-				errorStructure.children.push(colOffsetKey);
-				
-				const errorTypeKey = new AscCommonExcel.CRichValueKey();
-				errorTypeKey.t = 4;
-				errorTypeKey.n = "errorType";
-				errorStructure.children.push(errorTypeKey);
-				
-				const rwOffsetKey = new AscCommonExcel.CRichValueKey();
-				rwOffsetKey.t = 4;
-				rwOffsetKey.n = "rwOffset";
-				errorStructure.children.push(rwOffsetKey);
-				
-				const subTypeKey = new AscCommonExcel.CRichValueKey();
-				subTypeKey.t = 4;
-				subTypeKey.n = "subType";
-				errorStructure.children.push(subTypeKey);
-				
-				this.ws.workbook.richValueStructures.children.push(errorStructure);
-				
-				// Add to history
+				errorStructure.children = errorKeys.map(function (n) {
+					const key = new AscCommonExcel.CRichValueKey();
+					key.t = 4;
+					key.n = n;
+					return key;
+				});
+				errorStructureIndex = this.ws.workbook.richValueStructures.children.push(errorStructure) - 1;
+
 				const newRichValueStructures = this.ws.workbook.richValueStructures.clone();
 				AscCommon.History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueStructures,
 					null, null, new UndoRedoData_FromTo(oldRichValueStructures, newRichValueStructures));
 			}
 
 			// Initialize richValueTypesInfo if needed
-			if (!this.ws.workbook.richValueTypesInfo) {
-				const oldRichValueTypesInfo = null;
-				
-				this.ws.workbook.richValueTypesInfo = new AscCommonExcel.CRichValueTypesInfo();
-				
-				// Create global type
-				this.ws.workbook.richValueTypesInfo.global = new AscCommonExcel.CRichValueGlobalType();
-				this.ws.workbook.richValueTypesInfo.global.keyFlags = new AscCommonExcel.CRichValueTypeKeyFlags();
-				this.ws.workbook.richValueTypesInfo.global.keyFlags.arrItems = [];
-				
-				// Create reserved keys array
-				const reservedKeys = [
-					{name: "_Self", flags: [{name: "ExcludeFromFile", value: true}, {name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_DisplayString", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_Flags", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_Format", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_SubLabel", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_Attribution", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_Icon", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_Display", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_CanonicalPropertyNames", flags: [{name: "ExcludeFromCalcComparison", value: true}]},
-					{name: "_ClassificationId", flags: [{name: "ExcludeFromCalcComparison", value: true}]}
-				];
-				
-				for (let i = 0; i < reservedKeys.length; i++) {
-					const reservedKey = new AscCommonExcel.CRichValueTypeReservedKey();
-					reservedKey.name = reservedKeys[i].name;
-					reservedKey.arrItems = [];
-					
-					for (let j = 0; j < reservedKeys[i].flags.length; j++) {
-						const flag = new AscCommonExcel.CRichValueTypeReservedKeyFlag();
-						flag.name = reservedKeys[i].flags[j].name;
-						flag.value = reservedKeys[i].flags[j].value;
-						reservedKey.arrItems.push(flag);
-					}
-					
-					this.ws.workbook.richValueTypesInfo.global.keyFlags.arrItems.push(reservedKey);
-				}
-				
-				// Add to history
-				const newRichValueTypesInfo = this.ws.workbook.richValueTypesInfo.clone();
-				AscCommon.History.Add(AscCommonExcel.g_oUndoRedoWorkbook, AscCH.historyitem_Workbook_RichValueTypesInfo,
-					null, null, new UndoRedoData_FromTo(oldRichValueTypesInfo, newRichValueTypesInfo));
-			}
+			this.ws.workbook.ensureRichValueTypesInfo();
 
 			// Calculate offsets from beforeSpillRange
 			let colOffset = "0";
@@ -26445,7 +26648,7 @@
 					}
 					const rvIdx = ext.richValueBlock.i;
 					const rv = this.ws.workbook.richValueData && this.ws.workbook.richValueData.pData && this.ws.workbook.richValueData.pData[rvIdx];
-					if (!rv || !rv.arrV) {
+					if (!rv || !rv.arrV || rv.s !== errorStructureIndex) {
 						continue;
 					}
 					// arrV: [colOffset, errorType, rwOffset, subType]
@@ -26471,7 +26674,7 @@
 				
 				// Create rich value with error data
 				const richValue = new AscCommonExcel.CRichValue();
-				richValue.s = 0;
+				richValue.s = errorStructureIndex;
 				richValue.fb = null;
 				richValue.arrV = [colOffset, "8", rwOffset, "1"];
 				this.ws.workbook.richValueData.pData.push(richValue);

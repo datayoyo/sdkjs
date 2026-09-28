@@ -4875,6 +4875,13 @@ var editor;
 		}
 	};
 
+  // Picture in cell: upload (file dialog or urls) then place the pictures down the column from the active cell
+  spreadsheet_api.prototype.asc_addImageInCell = function () {
+    this.asc_addImage({placeInCell: true});
+  };
+  spreadsheet_api.prototype.asc_addImageInCellUrl = function (urls, token, alt) {
+    this.AddImageUrl(urls, null, token, {placeInCell: true, alt: alt});
+  };
   spreadsheet_api.prototype.asc_addImageDrawingObject = function (urls, imgProp, token) {
 
     var t = this;
@@ -4922,7 +4929,12 @@ var editor;
     const oWS = this.wb.getWorksheet();
     if (oWS) {
       if (oOptionObject) {
-        if (oOptionObject.isImageChangeUrl || oOptionObject.isShapeImageChangeUrl || oOptionObject.isTextArtChangeUrl || oOptionObject.fAfterUploadOleObjectImage) {
+        if (oOptionObject.placeInCell) {
+          const mediaPaths = arrUrls.map(function (url) {
+            return AscCommon.g_oDocumentUrls.getImageLocal(url) || url;
+          });
+          oWS.placeImagesInCells(mediaPaths, oOptionObject.alt || "");
+        } else if (oOptionObject.isImageChangeUrl || oOptionObject.isShapeImageChangeUrl || oOptionObject.isTextArtChangeUrl || oOptionObject.fAfterUploadOleObjectImage) {
           oWS.objectRender.editImageDrawingObject(arrUrls[0], oOptionObject);
         } else {
           if (this.ImageLoader) {
@@ -5609,6 +5621,9 @@ var editor;
       var ws = this.wb.getWorksheet();
       ws.objectRender.showDrawingObjects();
       ws.objectRender.controller.getGraphicObjectProps();
+      if (this.wbModel.richValueRels) {
+        ws.draw();//pictures in cells whose media arrived with this batch
+      }
     }
   };
 
@@ -5621,6 +5636,9 @@ var editor;
           worksheet.objectRender.showDrawingObjects();
             worksheet.objectRender.controller && worksheet.objectRender.controller.getGraphicObjectProps();
         }
+      }
+      if (this.wbModel.richValueRels) {
+        worksheet.draw();//pictures in cells whose media just loaded
       }
     }
   };
@@ -10254,6 +10272,8 @@ var editor;
 	prot["asc_getChartData"] = prot.asc_getChartData;
 	prot["asc_addChartSpace"] = prot.asc_addChartSpace;
   prot["asc_addImageDrawingObject"] = prot.asc_addImageDrawingObject;
+  prot["asc_addImageInCell"] = prot.asc_addImageInCell;
+  prot["asc_addImageInCellUrl"] = prot.asc_addImageInCellUrl;
   prot["asc_getCurrentDrawingMacrosName"] = prot.asc_getCurrentDrawingMacrosName;
   prot["asc_assignMacrosToCurrentDrawing"] = prot.asc_assignMacrosToCurrentDrawing;
   prot["asc_setSelectedDrawingObjectLayer"] = prot.asc_setSelectedDrawingObjectLayer;
