@@ -1416,7 +1416,8 @@
 				this.m_oContext.globalAlpha = oldAlpha * this.textAlpha * (_a / 255);
 			}
 
-			this.private_FillGlyph(pGlyph);
+			if (!AscFonts.DrawEmoji(this.m_oContext, _font_manager, codepoints))
+				this.private_FillGlyph(pGlyph);
 
 			if (oldAlpha)
 				this.m_oContext.globalAlpha = oldAlpha;

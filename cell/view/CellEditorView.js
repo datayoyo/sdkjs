@@ -3098,11 +3098,11 @@ function (window, undefined) {
 		var newChar;
 		if (Array.isArray(codePoints)) {
 			for (let nIdx = 0; nIdx < codePoints.length; ++nIdx) {
-				newChar = String.fromCharCode(codePoints[nIdx]);
+				newChar = String.fromCodePoint(codePoints[nIdx]);
 				t._addChars(newChar);
 			}
 		} else {
-			newChar = String.fromCharCode(codePoints);
+			newChar = String.fromCodePoint(codePoints);
 			t._addChars(newChar);
 		}
 

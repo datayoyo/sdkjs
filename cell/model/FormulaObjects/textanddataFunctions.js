@@ -3455,7 +3455,7 @@ function (window, undefined) {
 				return new cError(cErrorType.wrong_value_type);
 			}
 
-			var res = String.fromCharCode(num);
+			var res = String.fromCodePoint(num);
 			if ("" === res) {
 				return new cError(cErrorType.wrong_value_type);
 			}
@@ -3495,7 +3495,7 @@ function (window, undefined) {
 
 		function _func(argArray) {
 			var str = argArray[0].toLocaleString();
-			var res = str.charCodeAt(0);
+			var res = str.length ? str.codePointAt(0) : NaN;
 			return new cNumber(res);
 		}
 
