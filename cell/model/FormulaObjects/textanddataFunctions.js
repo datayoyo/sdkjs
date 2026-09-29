@@ -3624,7 +3624,7 @@ function (window, undefined) {
 			if (str.length === 0) {
 				return new cError(cErrorType.wrong_value_type);
 			}
-			let res = str.charCodeAt(0);
+			let res = str.codePointAt(0);
 			return new cNumber(res);
 		}
 

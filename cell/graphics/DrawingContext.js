@@ -1116,6 +1116,10 @@
 			}
 			catch(err){}
 			
+			if (AscFonts.DrawEmoji(this.ctx, fontManager, codePoints)) {
+				return this;
+			}
+			
 			let glyph = fontManager.m_oGlyphString.m_pGlyphsBuffer[0];
 			if (!glyph || !glyph.oBitmap)
 				return this;

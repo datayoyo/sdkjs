@@ -105,6 +105,58 @@
 			}
 		}
 	}
+	// The font engine rasterizes monochrome outlines only, so color emoji (🟥 🟩 ⬜ ...) are drawn by the browser.
+	// Layout keeps the engine's advance (the same on every client and in x2t), the emoji is shrunk to fit it: a server
+	// without any font for the character only reserves the narrow notdef advance, so it gets a small emoji.
+	// ponytail: screen only, print/PDF/thumbnails stay monochrome until the engine supports FT_LOAD_COLOR/COLR.
+	let EMOJI_REGEXP = null;
+	try
+	{
+		// built from a string so the closure compiler leaves the unicode property escape alone
+		EMOJI_REGEXP = new RegExp("\\p{Emoji_Presentation}|\\uFE0F", "u");
+	}
+	catch (e)
+	{
+	}
+	const EMOJI_FONT = 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+	/**
+	 * Draws the glyph just loaded into fontManager (LoadString3C) with the browser's emoji font if its code points are
+	 * an emoji, fitted into its advance. Rotated text keeps the engine glyph.
+	 */
+	function DrawEmoji(ctx, fontManager, codePoints)
+	{
+		// nothing below U+231A has emoji presentation: keep plain text off the regexp
+		let index = 0, count = codePoints ? codePoints.length : 0;
+		while (index < count && codePoints[index] < 0x231A)
+			++index;
+		if (!EMOJI_REGEXP || index === count)
+			return false;
+
+		let font = fontManager.m_pFont;
+		let m    = font ? font.m_arrdTextMatrix : null;
+		if (!font || (font.m_bIsTransform && (m[1] || m[2])))
+			return false;
+
+		let text = String.fromCodePoint.apply(String, codePoints);
+		let str  = fontManager.m_oGlyphString;
+		let size = font.m_fSize * font.m_unVerDpi / 72 * (font.m_bIsTransform ? m[3] : 1);
+		let advance = str.m_fEndX - str.m_fX;
+		if (!(size > 0) || !(advance > 0) || !EMOJI_REGEXP.test(text))
+			return false;
+
+		ctx.save();
+		ctx.textBaseline = "alphabetic";
+		ctx.font = size + EMOJI_FONT;
+		let width = ctx.measureText(text).width;
+		if (width > advance)
+		{
+			ctx.font = (size * advance / width) + EMOJI_FONT;
+			width = advance;
+		}
+		ctx.fillText(text, str.m_fX + (advance - width) / 2, str.m_fY);
+		ctx.restore();
+		return true;
+	}
 	function CompareGraphemes(g)
 	{
 		if (g.length !== GRAPHEME_LEN)
@@ -178,6 +230,13 @@
 		{
 			let nGID = GRAPHEME_BUFFER[nPos];
 			nPos += 6;
+
+			// every character missing from the font is gid 0: key those by code points or they share one grapheme
+			if (0 === nGID && codePoints)
+			{
+				for (let nIndex = 0, nCount = codePoints.getCount(); nIndex < nCount; ++nIndex)
+					nGID += "_" + codePoints.get(nIndex);
+			}
 
 			if (!result[nGID])
 				result[nGID] = {};
@@ -296,6 +355,7 @@
 	window['AscFonts'].NO_GRAPHEME           = NO_GRAPHEME;
 	window['AscFonts'].InitGrapheme          = InitGrapheme;
 	window['AscFonts'].DrawGrapheme          = DrawGrapheme;
+	window['AscFonts'].DrawEmoji             = DrawEmoji;
 	window['AscFonts'].CompareGraphemes      = CompareGraphemes;
 	window['AscFonts'].AddGlyphToGrapheme    = AddGlyphToGrapheme;
 	window['AscFonts'].GetGrapheme           = GetGrapheme;
