@@ -3566,11 +3566,28 @@ BinaryChartWriter.prototype.WriteCT_DLbl = function (oVal) {
         });
     }
 
-	if(null != oVal.showDlblsRange) {
+	if(null != oVal.showDlblsRange || oVal.fieldTable) {
 		this.bs.WriteItem(c_oserct_dataLabel, function () {
-			oThis.bs.WriteItem(c_oserct_showDataLabelsRange, function () {
-				oThis.WriteCT_Boolean(oVal.showDlblsRange);
-			});
+			if(null != oVal.showDlblsRange) {
+				oThis.bs.WriteItem(c_oserct_showDataLabelsRange, function () {
+					oThis.WriteCT_Boolean(oVal.showDlblsRange);
+				});
+			}
+			if(oVal.fieldTable) {
+				oThis.bs.WriteItem(c_oserct_dlblFieldTable, function () {
+					oVal.fieldTable.forEach(function (oEntry) {
+						// an entry is a datalabelsRange (f, cache) plus the guid of its field
+						oThis.bs.WriteItem(0, function () {
+							oThis.WriteCT_datalabelsRange(oEntry.ref);
+							if(oEntry.guid) {
+								oThis.bs.WriteItem(2, function () {
+									oThis.memory.WriteString3(oEntry.guid);
+								});
+							}
+						});
+					});
+				});
+			}
 		});
 	}
     // var oCurVal = oVal.m_extLst;
@@ -10391,6 +10408,26 @@ BinaryChartReader.prototype.ReadCT_DLblExt = function(type, length, val) {
 			res = this.bcr.Read1(length, function (t, l) {
 				return oThis.ReadCT_Layout(t, l, val);
 			});
+			break;
+		}
+
+		case c_oserct_dlblFieldTable: {
+			let aTable = [];
+			res = this.bcr.Read1(length, function (t, l) {
+				if (0 !== t) {
+					return c_oSerConstants.ReadUnknown;
+				}
+				let oEntry = {guid: null, ref: new AscFormat.CStrRef()};
+				aTable.push(oEntry);
+				return oThis.bcr.Read1(l, function (t2, l2) {
+					if (2 === t2) {
+						oEntry.guid = oThis.stream.GetString2LE(l2);
+						return c_oSerConstants.ReadOk;
+					}
+					return oThis.ReadCT_dataLabelsRange(t2, l2, oEntry.ref);
+				});
+			});
+			val.setFieldTable(aTable);
 			break;
 		}
 

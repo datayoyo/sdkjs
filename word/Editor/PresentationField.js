@@ -100,7 +100,8 @@
         }
         var Field = new CPresentationField(this.Paragraph);
         Field.Set_Pr( this.Pr.Copy() );
-        Field.SetGuid(AscCommon.CreateGUID());
+        // a chart label's CELLREF field is found by its guid in the label's field table, which is copied along with it
+        Field.SetGuid("cellref" === this.GetFieldType() ? this.Guid : AscCommon.CreateGUID());
         Field.SetFieldType( this.FieldType );
         if(this.PPr)
         {
@@ -286,6 +287,20 @@
                         {
                             sStr = sTxLink;
                         }
+                    }
+                }
+            }
+            else if("cellref" === sFieldType)
+            {
+                // "Value From Cells" of a chart data label; Excel shows the placeholder when the link is missing
+                sStr = "[CELLREF]";
+                if(this.Paragraph && this.Paragraph.Parent)
+                {
+                    oStylesObject = this.Paragraph.Parent.Get_Styles();
+                    var sCellText = oStylesObject.shape && oStylesObject.shape.getCellRefText && oStylesObject.shape.getCellRefText(this.Guid);
+                    if(typeof sCellText === "string")
+                    {
+                        sStr = sCellText;
                     }
                 }
             }

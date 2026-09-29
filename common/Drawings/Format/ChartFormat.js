@@ -2446,6 +2446,7 @@
         this.spPr = null;
         this.tx = null;
         this.txPr = null;
+        this.fieldTable = null; // [{guid, ref: CStrRef}]: the cells behind the CELLREF fields of tx (c15:dlblFieldTable)
 
         this.recalcInfo =
         {
@@ -2533,6 +2534,11 @@
         }
         if(this.txPr) {
             oCopy.setTxPr(this.txPr.createDuplicate());
+        }
+        if(this.fieldTable) {
+            oCopy.setFieldTable(this.fieldTable.map(function(oEntry) {
+                return {guid: oEntry.guid, ref: oEntry.ref.createDuplicate()};
+            }));
         }
     };
     CDLbl.prototype.checkShapeChildTransform = function(transform) {
@@ -3546,6 +3552,11 @@
         if(this.tx && this.tx.rich) {
             this.txBody = this.tx.rich;
             this.txBody.parent = this;
+            // the cells behind CELLREF fields may have changed: measure those fields again
+            const aFields = this.fieldTable && this.txBody.content && this.txBody.content.AllFields;
+            for(let nIdx = 0; aFields && nIdx < aFields.length; ++nIdx) {
+                aFields[nIdx].RecalcMeasure();
+            }
         }
         else if(this.txPr && this.txPr.content && !this.txPr.content.IsEmpty()) {
             this.txBody = this.txPr.createDuplicate();
@@ -3620,6 +3631,8 @@
             this.setShowVal(dLbl.showVal);
         if(dLbl.showDlblsRange != null)
             this.setShowDlblsRange(dLbl.showDlblsRange);
+        if(dLbl.fieldTable)
+            this.fieldTable = dLbl.fieldTable;
 
         if(dLbl.spPr != null) {
             if(this.spPr == null) {
@@ -3809,6 +3822,26 @@
         AscCommon.History.CanAddChanges() && AscCommon.History.Add(new CChangesDrawingsBool(this, AscDFH.historyitem_DLbl_SetShowVal, this.setShowChartExVal, pr));
         this.showChartExVal = pr;
     };
+    // ponytail: no history item, the table only comes from the file (and copies); editing it in the editor is not supported
+    CDLbl.prototype.setFieldTable = function(pr) {
+        this.fieldTable = pr;
+        for(let nIdx = 0; nIdx < pr.length; ++nIdx) {
+            pr[nIdx].ref.setParent(this);
+        }
+    };
+    CDLbl.prototype.updateFieldTable = function() {
+        for(let nIdx = 0; this.fieldTable && nIdx < this.fieldTable.length; ++nIdx) {
+            this.fieldTable[nIdx].ref.updateCache();
+        }
+    };
+    CDLbl.prototype.getCellRefText = function(sGuid) {
+        for(let nIdx = 0; this.fieldTable && nIdx < this.fieldTable.length; ++nIdx) {
+            if(this.fieldTable[nIdx].guid === sGuid) {
+                return this.fieldTable[nIdx].ref.getText(true);
+            }
+        }
+        return null;
+    };
     CDLbl.prototype.setShowDlblsRange = function(pr) {
         AscCommon.History.CanAddChanges() && AscCommon.History.Add(new CChangesDrawingsBool(this, AscDFH.historyitem_DLbl_SetShowDLblsRange, this.showDlblsRange, pr));
         this.showDlblsRange = pr;
@@ -3952,6 +3985,9 @@
         }
         for(let nIdx = 0; nIdx < this.errBars.length; ++nIdx) {
             this.errBars[nIdx].updateWithHistory();
+        }
+        for(let nIdx = 0; this.dLbls && nIdx < this.dLbls.dLbl.length; ++nIdx) {
+            this.dLbls.dLbl[nIdx].updateFieldTable();
         }
     };
     CSeriesBase.prototype.Refresh_RecalcData = function(oData) {
@@ -18652,6 +18688,11 @@
             if(oElement.getObjectType() === AscDFH.historyitem_type_ChartText) {
                 if(oElement.strRef) {
                     oThis.labelsRefs.push(oElement.strRef.getDataRefs());
+                }
+            }
+            else if(oElement.getObjectType() === AscDFH.historyitem_type_DLbl && oElement.fieldTable) {
+                for(let nIdx = 0; nIdx < oElement.fieldTable.length; ++nIdx) {
+                    oThis.labelsRefs.push(oElement.fieldTable[nIdx].ref.getDataRefs());
                 }
             }
         });
