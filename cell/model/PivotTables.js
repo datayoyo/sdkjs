@@ -8819,16 +8819,13 @@ CT_pivotTableDefinition.prototype.getCellByGetPivotDataParams = function(params)
 	const c = pivotRange.c1 + this.location.firstDataCol;
 	if (dataFields && dataFields.length > 0) {
 		if (params.optParams.length === 0) {
-			// with no field but Σ Values (st_VALUES), the pivot is one line of values: its own total, even with grand totals off
+			// an axis with no field but Σ Values (st_VALUES) needs no grand total: its one line is its own total
 			const onlyValues = function (fields) {
 				return !fields || fields.every(function (field) {
 					return st_VALUES === field.asc_getIndex();
 				});
 			};
-			let hasGrandTotal = (this.rowGrandTotals && this.colGrandTotals) ||
-				(this.rowGrandTotals && !this.asc_getColumnFields()) ||
-				(this.colGrandTotals && !this.asc_getRowFields()) ||
-				(onlyValues(rowFields) && onlyValues(colFields));
+			let hasGrandTotal = (this.rowGrandTotals || onlyValues(rowFields)) && (this.colGrandTotals || onlyValues(colFields));
 			if (hasGrandTotal) {
 				return this.getCellByDataFieldOnly(params.dataFieldName);
 			} else {
@@ -9104,7 +9101,7 @@ CT_pivotTableDefinition.prototype.getMaxSubtotalR = function(fields) {
  */
 CT_pivotTableDefinition.prototype.getDefaultSubtotalItemIndex = function(items, itemIndex, fields, dataIndex, r) {
 	let maxSubtotalR = this.getMaxSubtotalR(fields);
-	if (r < maxSubtotalR) {
+	if (itemIndex !== null && r < maxSubtotalR) {
 		for (let i = itemIndex + 1; i < items.length; i += 1) {
 			const item = items[i];
 			if (item.getR() > r) {
@@ -9137,7 +9134,8 @@ CT_pivotTableDefinition.prototype.getItemsIndexesByItemFieldsMap = function(rowI
 		let minR = 0;
 		for (let i = 0; i < items.length; i += 1) {
 			const item = items[i];
-			if (item.getR() < minR) {
+			if (item.getR() < minR || item.t === Asc.c_oAscItemType.Grand) {
+				// the grand total's <x v="0"/> is no item of the field
 				return null;
 			}
 			if (item.getR() > minR) {
