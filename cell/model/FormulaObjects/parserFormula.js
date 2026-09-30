@@ -2474,12 +2474,10 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 				this.isDynamic = true;
 			}
 
-			let openBracketIndex = startCol.indexOf("[");
-			if (openBracketIndex !== -1) {
-				let closeBracketIndex = startCol.lastIndexOf("]");
-				if (closeBracketIndex !== -1) {
-					startCol = startCol.slice(openBracketIndex + 1, closeBracketIndex);
-				} 
+			// strip only the optional wrapper of Table[[Column]]; escaped brackets ('[ '], as in Table['[Column']]) belong to the name
+			let wrapped = /^\s*\[([\s\S]*)\]\s*$/.exec(startCol);
+			if (wrapped) {
+				startCol = wrapped[1];
 			}
 
 			this.oneColumnIndex = this.wb.getTableIndexColumnByName(this.tableName, this.isDynamic ? startCol.slice(1) : startCol);
