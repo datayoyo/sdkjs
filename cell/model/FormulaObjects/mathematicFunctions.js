@@ -5957,7 +5957,13 @@ function (window, undefined) {
 	cSUM.prototype.argumentsType = [[argType.number]];
 	cSUM.prototype.enabledToSingle = {"*": true};
 	cSUM.prototype.Calculate = function (arg) {
-		var element, _arg, arg0 = new cNumber(0);
+		var element, _arg, arg0 = new cNumber(0), largest = 0;
+		var add = function (v) {
+			if (cElementType.number === v.type) {
+				largest = Math.max(largest, Math.abs(v.getValue()));
+			}
+			arg0 = _func[arg0.type][v.type](arg0, v, "+");
+		};
 		for (var i = 0; i < arg.length; i++) {
 			element = arg[i];
 			if (cElementType.cellsRange === element.type || cElementType.cellsRange3D === element.type) {
@@ -5965,7 +5971,7 @@ function (window, undefined) {
 					this.excludeNestedStAg);
 				for (var j = 0; j < _arrVal.length; j++) {
 					if (cElementType.bool !== _arrVal[j].type && cElementType.string !== _arrVal[j].type) {
-						arg0 = _func[arg0.type][_arrVal[j].type](arg0, _arrVal[j], "+");
+						add(_arrVal[j]);
 					}
 					if (cElementType.error === arg0.type) {
 						return arg0;
@@ -5975,7 +5981,7 @@ function (window, undefined) {
 				if (!this.checkExclude || !element.isHidden(this.excludeHiddenRows)) {
 					_arg = element.getValue();
 					if (cElementType.bool !== _arg.type && cElementType.string !== _arg.type) {
-						arg0 = _func[arg0.type][_arg.type](arg0, _arg, "+");
+						add(_arg);
 					}
 				}
 			} else if (cElementType.array === element.type) {
@@ -5994,11 +6000,14 @@ function (window, undefined) {
 						//tail: the value repeated `count` times; multiply via _func so coercion/error propagation match
 						arrElem = _func[arrElem.type][cElementType.number](arrElem, new cNumber(count), "*");
 					}
+					if (cElementType.number === arrElem.type) {
+						largest = Math.max(largest, Math.abs(arrElem.getValue()));
+					}
 					return _func[acc.type][arrElem.type](acc, arrElem, "+");
 				}, arg0);
 			} else {
 				_arg = element.tocNumber();
-				arg0 = _func[arg0.type][_arg.type](arg0, _arg, "+");
+				add(_arg);
 			}
 			if (cElementType.error === arg0.type) {
 				return arg0;
@@ -6006,7 +6015,8 @@ function (window, undefined) {
 
 		}
 
-		return arg0;
+		// as Excel, addends that cancel out but for their last bits sum to 0
+		return cElementType.number === arg0.type && Math.abs(arg0.getValue()) < largest * 1e-15 ? new cNumber(0) : arg0;
 	};
 
 	/**
