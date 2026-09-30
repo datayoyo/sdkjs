@@ -5201,10 +5201,14 @@ CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotF
 				}
 			}
 		}
+		//as Excel, a manual filter (items still hidden and still shown) keeps the new items out unless includeNewItemsInFilter
+		var hideNew = !pivotField.includeNewItemsInFilter && newItems.item.some(function(item) {return item.h;}) &&
+			newItems.item.some(function(item) {return !item.h;});
 		for (i = 0; i < cacheField.sharedItems.Items.getSize(); ++i) {
 			if(!equalMap.has(i)){
 				newItem = new CT_Item();
 				newItem.x = i;
+				newItem.h = hideNew;
 				newItems.item.push(newItem);
 			}
 		}
