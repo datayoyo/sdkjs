@@ -8560,6 +8560,22 @@ function parserFormula( formula, parent, _ws ) {
 		return false;
 	};
 	parserFormula.prototype.parse = function (local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList) {
+		// a line break (Alt+Enter, or \r\n in files saved by Excel) separates tokens like a space; same length, so positions hold
+		let text = this.Formula;
+		if (this.isParsed || !text || !/[\r\n]/.test(text)) {
+			return this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
+		}
+		// line breaks inside "string literals" are text and stay
+		let spaced = this.Formula = text.replace(/"(?:""|[^"])*"|[\r\n]/g, function (m) {
+			return m.length === 1 ? " " : m;
+		});
+		let res = this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
+		if (this.Formula === spaced) {
+			this.Formula = text;
+		}
+		return res;
+	};
+	parserFormula.prototype._parse = function (local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList) {
 		this._noSelfRefRecalcId = 0;
 		var elemArr = [];
 		var ph = {operand_str: null, pCurrPos: 0};
