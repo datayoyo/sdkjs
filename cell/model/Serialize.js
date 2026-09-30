@@ -16340,6 +16340,7 @@
         this.sheetId = null;
         this.id = null;
         this.bHidden = null;
+        this.bVeryHidden = false;
     }
 
     CT_Sheet.prototype.fromXml = function (reader) {
@@ -16367,6 +16368,7 @@
                     this.bHidden = true;
                 } else if ("veryHidden" === val) {
                     this.bHidden = true;
+                    this.bVeryHidden = true;
                 } else if ("visible" === val) {
                     this.bHidden = false;
                 }

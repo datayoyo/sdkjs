@@ -6767,6 +6767,7 @@
 							ws.sName = wbSheetXml.name;
 							if (null !== wbSheetXml.bHidden) {
 								ws.bHidden = wbSheetXml.bHidden;
+								ws.bVeryHidden = wbSheetXml.bVeryHidden;
 							}
 							//var wsView = new AscCommonExcel.asc_CSheetViewSettings();
 							//wsView.pane = new AscCommonExcel.asc_CPane();
@@ -8436,6 +8437,9 @@
 	};
 	Worksheet.prototype.getHidden=function(){
 		return true === this.bHidden;
+	};
+	Worksheet.prototype.getVeryHidden = function () {
+		return this.getHidden() && true === this.bVeryHidden;
 	};
 	Worksheet.prototype.setHidden = function (hidden) {
 		var bOldHidden = this.bHidden, wb = this.workbook, wsActive = wb.getActiveWs(), oVisibleWs = null;
