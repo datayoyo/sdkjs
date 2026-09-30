@@ -8421,10 +8421,16 @@ CT_pivotTableDefinition.prototype.getCellByGetPivotDataParams = function(params)
 	const c = pivotRange.c1 + this.location.firstDataCol;
 	if (dataFields && dataFields.length > 0) {
 		if (params.optParams.length === 0) {
+			// with no field but Σ Values (st_VALUES), the pivot is one line of values: its own total, even with grand totals off
+			const onlyValues = function (fields) {
+				return !fields || fields.every(function (field) {
+					return st_VALUES === field.asc_getIndex();
+				});
+			};
 			let hasGrandTotal = (this.rowGrandTotals && this.colGrandTotals) ||
 				(this.rowGrandTotals && !this.asc_getColumnFields()) ||
 				(this.colGrandTotals && !this.asc_getRowFields()) ||
-				(!this.asc_getRowFields() && !this.asc_getColumnFields());
+				(onlyValues(rowFields) && onlyValues(colFields));
 			if (hasGrandTotal) {
 				return this.getCellByDataFieldOnly(params.dataFieldName);
 			} else {
