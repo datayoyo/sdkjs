@@ -302,6 +302,22 @@ var History = AscCommon.History;
 var c_oAscAutoFilterTypes = Asc.c_oAscAutoFilterTypes;
 var c_oAscCustomAutoFilter = Asc.c_oAscCustomAutoFilter;
 
+var pivotCollator = null;
+/**
+ * Excel's order for item text: the locale's, hyphens and apostrophes aside ("coop" < "co-op" < "cop", "da" < "d'a"), as Windows sorts words
+ * @param {string} a
+ * @param {string} b
+ * @return {number}
+ */
+function cmpPivotStrings(a, b) {
+	var locale = AscCommon.g_oDefaultCultureInfo ? AscCommon.g_oDefaultCultureInfo.Name : "en";
+	if (!pivotCollator || pivotCollator.locale !== locale) {
+		pivotCollator = {locale: locale, compare: new Intl.Collator(locale).compare};
+	}
+	var compare = pivotCollator.compare;
+	var aWord = a.replace(/['-]/g, ""), bWord = b.replace(/['-]/g, "");
+	return compare(aWord, bWord) || (a.length - aWord.length) - (b.length - bWord.length) || compare(a, b);
+}
 function cmpPivotItems(sharedItems, a, b) {
 	var sharedItem = sharedItems.Items.get(a.x);
 	var aType = sharedItem.type;
@@ -311,12 +327,7 @@ function cmpPivotItems(sharedItems, a, b) {
 	var bVal = sharedItem.val;
 	if (aType === bType) {
 		if (c_oAscPivotRecType.String === aType) {
-			if (aVal > bVal) {
-				return 1;
-			}
-			if (aVal < bVal) {
-				return -1;
-			}
+			return cmpPivotStrings(aVal, bVal);
 		} else if (c_oAscPivotRecType.Missing !== aType) {
 			return aVal - bVal;
 		}
@@ -5211,6 +5222,15 @@ CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotF
 				newItem.h = hideNew;
 				newItems.item.push(newItem);
 			}
+		}
+		//as Excel, a field sorted by its items sorts the new ones in, instead of after the old ones
+		var sortVal = pivotField.getSortVal();
+		if (null !== sortVal && -1 === pivotField.getSortDataIndex()) {
+			var sign = Asc.c_oAscSortOptions.Ascending === sortVal ? 1 : -1;
+			var sharedItems = cacheField.getGroupOrSharedItems();
+			newItems.item.sort(function(a, b) {
+				return sign * cmpPivotItems(sharedItems, a, b);
+			});
 		}
 		this.refreshBaseItemIndexes(pivotField.items.item, newItems.item, index);
 		pivotField.items = newItems;
