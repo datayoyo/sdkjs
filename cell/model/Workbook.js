@@ -6586,6 +6586,7 @@
 							ws.sName = wbSheetXml.name;
 							if (null !== wbSheetXml.bHidden) {
 								ws.bHidden = wbSheetXml.bHidden;
+								ws.bVeryHidden = wbSheetXml.bVeryHidden;
 							}
 							//var wsView = new AscCommonExcel.asc_CSheetViewSettings();
 							//wsView.pane = new AscCommonExcel.asc_CPane();
@@ -7076,6 +7077,8 @@
 		this.workbook = wb;
 		this.sName = this.workbook.getUniqueSheetNameFrom(g_sNewSheetNamePattern, false);
 		this.bHidden = false;
+		// very hidden (Excel's xlSheetVeryHidden): hidden and left out of the Unhide list; only read while bHidden
+		this.bVeryHidden = false;
 		this.oSheetFormatPr = new AscCommonExcel.SheetFormatPr();
 		this.index = _index;
 		this.Id = null != sId ? sId : AscCommon.g_oIdCounter.Get_NewId();//todo AscCommon.g_oTableId.Add
@@ -7321,6 +7324,7 @@
 		var t = this;
 		this.sName = this.workbook.checkValidSheetName(sName) ? sName : this.workbook.getUniqueSheetNameFrom(wsFrom.sName, true);
 		this.bHidden = wsFrom.bHidden;
+		this.bVeryHidden = wsFrom.bVeryHidden;
 		this.oSheetFormatPr = wsFrom.oSheetFormatPr.clone();
 		//this.index = wsFrom.index;
 		this.nRowsCount = wsFrom.nRowsCount;
@@ -8210,9 +8214,16 @@
 	Worksheet.prototype.getHidden=function(){
 		return true === this.bHidden;
 	};
+	Worksheet.prototype.getVeryHidden = function () {
+		return this.getHidden() && true === this.bVeryHidden;
+	};
 	Worksheet.prototype.setHidden = function (hidden) {
 		var bOldHidden = this.bHidden, wb = this.workbook, wsActive = wb.getActiveWs(), oVisibleWs = null;
 		this.bHidden = hidden;
+		if (!hidden) {
+			// ponytail: undoing this unhide hides the sheet again as plain hidden; keep the state in the history item if that matters
+			this.bVeryHidden = false;
+		}
 		if (bOldHidden != hidden) {
 			if (true == this.bHidden && this.getIndex() == wsActive.getIndex()) {
 				oVisibleWs = wb.findSheetNoHidden(this.getIndex());

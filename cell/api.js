@@ -2355,6 +2355,7 @@ var editor;
 							ws.sName = wbSheetXml.name;
 							if (null !== wbSheetXml.bHidden) {
 								ws.bHidden = wbSheetXml.bHidden;
+								ws.bVeryHidden = wbSheetXml.bVeryHidden;
 							}
 							//var wsView = new AscCommonExcel.asc_CSheetViewSettings();
 							//wsView.pane = new AscCommonExcel.asc_CPane();
@@ -3721,6 +3722,10 @@ var editor;
     return this.wbModel.getWorksheet(index).getHidden();
   };
 
+  spreadsheet_api.prototype.asc_isWorksheetVeryHidden = function(index) {
+    return this.wbModel.getWorksheet(index).getVeryHidden();
+  };
+
   spreadsheet_api.prototype.asc_getDefinedNames = function(defNameListId, excludeErrorRefNames) {
     return this.wb.getDefinedNames(defNameListId,excludeErrorRefNames);
   };
@@ -3896,7 +3901,8 @@ var editor;
         }
       };
       if (isHidden) {
-        if (this.asc_isProtectedWorkbook()) {
+        // as in Excel, only a macro (ApiWorksheet.SetVisible) shows a very hidden sheet
+        if (this.asc_isProtectedWorkbook() || ws.getVeryHidden()) {
           return false;
         }
         var sheetId = this.wbModel.getWorksheet(index).getId();
@@ -10144,6 +10150,7 @@ var editor;
   prot["asc_getActiveWorksheetId"] = prot.asc_getActiveWorksheetId;
   prot["asc_getWorksheetId"] = prot.asc_getWorksheetId;
   prot["asc_isWorksheetHidden"] = prot.asc_isWorksheetHidden;
+  prot["asc_isWorksheetVeryHidden"] = prot.asc_isWorksheetVeryHidden;
   prot["asc_isWorksheetLockedOrDeleted"] = prot.asc_isWorksheetLockedOrDeleted;
   prot["asc_isWorkbookLocked"] = prot.asc_isWorkbookLocked;
   prot["asc_isLayoutLocked"] = prot.asc_isLayoutLocked;
