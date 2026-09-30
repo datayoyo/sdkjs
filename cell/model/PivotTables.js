@@ -5385,6 +5385,7 @@ CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotF
 					//create new to lose other flags
 					newItem = item.clone();
 					newItem.x = newIndex;
+					newItem.m = false;
 					newItems.item.push(newItem);
 					equalMap.set(newIndex, 1);
 				}
@@ -18366,7 +18367,8 @@ CT_PivotField.prototype.refreshPivotFieldItem = function(sharedItems, oldSharedI
 	if (this.items) {
 		for (let i = 0; i < this.items.item.length; ++i) {
 			let item = this.items.item[i];
-			if (Asc.c_oAscItemType.Data === item.t && !item.m) {
+			//a missing item (m) the data brings back keeps its place, as in Excel
+			if (Asc.c_oAscItemType.Data === item.t) {
 				let oldSharedItem = oldSharedItems.Items.get(item.x);
 				if (oldSharedItem) {
 					//todo getGroupOrSharedSize
