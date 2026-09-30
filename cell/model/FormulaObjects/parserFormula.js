@@ -4577,6 +4577,14 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 			new cString("+" + arg[start + count - 1]);
 	};
 
+	// as Excel, the last + or - of a formula (opt_last, not inside parentheses) gives 0 when its operands cancel out
+	// but for their last bits: =0.1+0.2-0.3 is 0, =(0.1+0.2-0.3) and =1*(0.1+0.2-0.3) are 5.55e-17.
+	// The 1e-15 of the operand is measured on Excel's saved results: it gives 0 up to 9.1e-16 and keeps 1.9e-15
+	function snapToZero(res, arg0, opt_last) {
+		return opt_last && cElementType.number === res.type && cElementType.number === arg0.type &&
+			Math.abs(res.getValue()) < Math.abs(arg0.getValue()) * 1e-15 ? new cNumber(0) : res;
+	}
+
 	/**
 	 * @constructor
 	 * @extends {cBaseOperator}
@@ -4589,7 +4597,7 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 	cAddOperator.prototype.name = '+';
 	cAddOperator.prototype.priority = 20;
 	cAddOperator.prototype.argumentsCurrent = 2;
-	cAddOperator.prototype.Calculate = function (arg, opt_bbox, opt_defName, ws, bIsSpecialFunction) {
+	cAddOperator.prototype.Calculate = function (arg, opt_bbox, opt_defName, ws, bIsSpecialFunction, opt_last) {
 		var arg0 = arg[0], arg1 = arg[1];
 
 		if(bIsSpecialFunction){
@@ -4610,7 +4618,7 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 		}
 		arg0 = arg0.tocNumber();
 		arg1 = arg1.tocNumber();
-		return _func[arg0.type][arg1.type](arg0, arg1, "+", arguments[1], bIsSpecialFunction);
+		return snapToZero(_func[arg0.type][arg1.type](arg0, arg1, "+", arguments[1], bIsSpecialFunction), arg0, opt_last);
 	};
 
 	/**
@@ -4625,7 +4633,7 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 	cMinusOperator.prototype.name = '-';
 	cMinusOperator.prototype.priority = 20;
 	cMinusOperator.prototype.argumentsCurrent = 2;
-	cMinusOperator.prototype.Calculate = function (arg, opt_bbox, opt_defName, ws, bIsSpecialFunction) {
+	cMinusOperator.prototype.Calculate = function (arg, opt_bbox, opt_defName, ws, bIsSpecialFunction, opt_last) {
 		var arg0 = arg[0], arg1 = arg[1];
 
 		if(bIsSpecialFunction){
@@ -4646,7 +4654,7 @@ parserHelp.setDigitSeparator(AscCommon.g_oDefaultCultureInfo.NumberDecimalSepara
 		}
 		arg0 = arg0.tocNumber();
 		arg1 = arg1.tocNumber();
-		return _func[arg0.type][arg1.type](arg0, arg1, "-", arguments[1], bIsSpecialFunction);
+		return snapToZero(_func[arg0.type][arg1.type](arg0, arg1, "-", arguments[1], bIsSpecialFunction), arg0, opt_last);
 	};
 
 	/**
@@ -9595,7 +9603,10 @@ function parserFormula( formula, parent, _ws ) {
 						//if recursion - we must rewrite promise, because arguments can change
 						_tmp = !g_cCalcRecursion.getIsEnabledRecursion() && this.wb.asyncFormulasManager.getPromiseByIndex(this._index, i);
 						if (!_tmp) {
-							_tmp = currentElement.Calculate(arg, opt_bbox, opt_defName, this.ws, bIsSpecialFunction);
+							// only operators get opt_last: functions such as ROW read a sixth argument of their own
+							_tmp = currentElement.type === cElementType.operator && i === this.outStack.length - 1 ?
+								currentElement.Calculate(arg, opt_bbox, opt_defName, this.ws, bIsSpecialFunction, true) :
+								currentElement.Calculate(arg, opt_bbox, opt_defName, this.ws, bIsSpecialFunction);
 						}
 					}
 
