@@ -63,6 +63,9 @@ function (window, undefined) {
 		this.mean = 0;
 		this.M2 = 0;
 		this.errorType = null;
+		// pivot calculated field: the sums of the source fields its formula names
+		this.calculatedField = null;
+		this.refs = null;
 	};
 	StatisticOnlineAlgorithm.prototype.union = function (val, isCalculated) {
 		this.isCalculated = !!isCalculated;
@@ -79,6 +82,24 @@ function (window, undefined) {
 		this.count = this.count + val.count;
 		this.countNums = this.countNums + val.countNums;
 		this.errorType = this.errorType || val.errorType;
+		if (val.calculatedField) {
+			this._addRefs(val.calculatedField, val.refs);
+		}
+	};
+	StatisticOnlineAlgorithm.prototype.addCalculated = function (calculatedField, refs) {
+		this.count++;
+		this._addRefs(calculatedField, refs);
+	};
+	StatisticOnlineAlgorithm.prototype._addRefs = function (calculatedField, refs) {
+		this.calculatedField = calculatedField;
+		if (!this.refs) {
+			this.refs = refs.map(function () {
+				return 0;
+			});
+		}
+		for (var i = 0; i < refs.length; ++i) {
+			this.refs[i] += refs[i];
+		}
 	};
 	StatisticOnlineAlgorithm.prototype.add = function (val) {
 		this.count++;
@@ -157,6 +178,9 @@ function (window, undefined) {
 					type = Asc.c_oAscItemType.Blank;
 				}
 			}
+		}
+		if (this.calculatedField && Asc.c_oAscItemType.Blank !== type) {
+			return this.calculatedField.getCellValue(this.refs);
 		}
 		switch (type) {
 			case Asc.c_oAscItemType.Count:

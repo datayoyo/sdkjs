@@ -353,6 +353,100 @@ PivotDataElem.prototype.resetTotal = function () {
 		this.total[i].reset();
 	}
 }
+/**
+ * A calculated field is a cache field with a formula and no records. Like Excel, each cell sums the source fields the
+ * formula names (through other calculated fields too) and applies the formula to those sums, totals included.
+ * @constructor
+ * @param {CT_PivotCacheDefinition} cacheDefinition
+ * @param {number} fld
+ */
+function PivotCalculatedField(cacheDefinition, fld) {
+	this.cacheDefinition = cacheDefinition;
+	this.fld = fld;
+	/**@type {Object<number, AscCommonExcel.parserFormula | null>} */
+	this.formulas = {};
+	/**@type {number[]} source fields, in the order of the sums given to getCellValue */
+	this.refs = [];
+	this._collectRefs(fld, {});
+}
+PivotCalculatedField.prototype._getFormula = function(fld) {
+	if (!this.formulas.hasOwnProperty(fld)) {
+		const names = [];
+		this.cacheDefinition.getFields().forEach(function(field) {
+			const name = field.asc_getName() + '';
+			names.push(CT_pivotTableDefinition.prototype.asc_convertNameToFormula.call(null, name), "'" + name.replace(/'/g, "''") + "'");
+		});
+		names.sort(function(a, b) {
+			return b.length - a.length;
+		});
+		const formula = new AscCommonExcel.parserFormula(this.cacheDefinition.getFields()[fld].formula, this, AscCommonExcel.g_DefNameWorksheet);
+		this.formulas[fld] = formula.parse(undefined, undefined, undefined, undefined, undefined, undefined, [[], names]) ? formula : null;
+	}
+	return this.formulas[fld];
+};
+PivotCalculatedField.prototype._getFieldIndex = function(itemString) {
+	return this.cacheDefinition.getFieldIndexByName(CT_pivotTableDefinition.prototype.convertNameFromFormula.call(null, itemString));
+};
+PivotCalculatedField.prototype._collectRefs = function(fld, visited) {
+	const t = this;
+	const formula = this._getFormula(fld);
+	visited[fld] = true;
+	formula && formula.outStack.forEach(function(elem) {
+		if (elem.type !== AscCommonExcel.cElementType.pivotTable) {
+			return;
+		}
+		const index = t._getFieldIndex(elem.itemString);
+		const field = t.cacheDefinition.getFields()[index];
+		if (!field || visited[index]) {
+			return;
+		}
+		if (field.formula) {
+			t._collectRefs(index, visited);
+		} else if (-1 === t.refs.indexOf(index)) {
+			t.refs.push(index);
+		}
+	});
+};
+PivotCalculatedField.prototype._calculate = function(fld, sums, visiting) {
+	const t = this;
+	const field = this.cacheDefinition.getFields()[fld];
+	if (!field || visiting[fld]) {
+		return new AscCommonExcel.cError(AscCommonExcel.cErrorType.bad_reference);
+	}
+	if (!field.formula) {
+		return new AscCommonExcel.cNumber(sums[this.refs.indexOf(fld)] || 0);
+	}
+	const formula = this._getFormula(fld);
+	if (!formula) {
+		return new AscCommonExcel.cError(AscCommonExcel.cErrorType.wrong_name);
+	}
+	visiting[fld] = true;
+	const res = formula.calculate(undefined, undefined, undefined, undefined, undefined, function(fieldString, itemString) {
+		return t._calculate(t._getFieldIndex(itemString), sums, visiting);
+	});
+	visiting[fld] = false;
+	return res;
+};
+/**
+ * @param {number[]} sums of this.refs over the records of a cell
+ * @return {AscCommonExcel.CCellValue}
+ */
+PivotCalculatedField.prototype.getCellValue = function(sums) {
+	let value = this._calculate(this.fld, sums, {});
+	const cellValue = new AscCommonExcel.CCellValue();
+	if (value && AscCommonExcel.cElementType.bool === value.type) {
+		value = value.tocNumber();
+	}
+	if (value && AscCommonExcel.cElementType.number === value.type) {
+		cellValue.type = AscCommon.CellValueType.Number;
+		cellValue.number = value.getValue();
+	} else {
+		cellValue.type = AscCommon.CellValueType.Error;
+		cellValue.text = value && AscCommonExcel.cElementType.error === value.type ? value.toString() :
+			AscCommonExcel.cError.prototype.getStringFromErrorType(AscCommonExcel.cErrorType.wrong_value_type);
+	}
+	return cellValue;
+};
 function PivotDataLocation(ws, bbox, headings) {
 	this.ws = ws;
 	this.bbox = bbox;
@@ -2414,10 +2508,14 @@ CT_PivotCacheRecords.prototype._getDataMapTotal = function(rowMap, index, length
 		}
 	}
 };
-CT_PivotCacheRecords.prototype._getDataMapRowToTotal = function(cacheFields, row, rowMapCur, dataFields) {
+CT_PivotCacheRecords.prototype._getDataMapRowToTotal = function(cacheFields, row, rowMapCur, dataFields, calculatedFields) {
 	var i, val, total;
 	for (i = 0; i < rowMapCur.total.length; ++i) {
 		total = rowMapCur.total[i];
+		if (calculatedFields && calculatedFields[i]) {
+			this._getDataMapRowToCalculated(cacheFields, row, total, calculatedFields[i]);
+			continue;
+		}
 		var dataIndex = dataFields[i].fld;
 		var cacheField = cacheFields[dataIndex];
 		var cacheFieldBaseIndex = cacheField.getGroupBaseIndex(dataIndex);
@@ -2437,6 +2535,26 @@ CT_PivotCacheRecords.prototype._getDataMapRowToTotal = function(cacheFields, row
 			}
 		}
 	}
+};
+/**
+ * @param {CT_CacheField[]} cacheFields
+ * @param {number} row
+ * @param {StatisticOnlineAlgorithm} total
+ * @param {PivotCalculatedField} calculatedField
+ */
+CT_PivotCacheRecords.prototype._getDataMapRowToCalculated = function(cacheFields, row, total, calculatedField) {
+	const t = this;
+	total.addCalculated(calculatedField, calculatedField.refs.map(function(fld) {
+		let val = fld < t.getColsCount() ? t._cols[fld].get(row) : null;
+		if (val && c_oAscPivotRecType.Index === val.type) {
+			val = cacheFields[fld].getSharedItem(val.val) || val;
+		}
+		if (val && c_oAscPivotRecType.Error === val.type) {
+			total.addError(val.val);
+		}
+		// text and blanks count as 0, as in Excel
+		return val && (c_oAscPivotRecType.Number === val.type || c_oAscPivotRecType.DateTime === val.type) ? val.val : 0;
+	}));
 };
 
 /**
@@ -2465,7 +2583,7 @@ CT_PivotCacheRecords.prototype._getDataMapSkeleton = function(options) {
 		}
 		this.fillVisibleFields(cacheFields, row, cacheFieldsWithData);
 		curr = this._getDataMapFromFields(cacheFields,indexes, row, curr, dataFields.length, itemsWithDataMap);
-		this._getDataMapRowToTotal(cacheFields, row, curr, dataFields);
+		this._getDataMapRowToTotal(cacheFields, row, curr, dataFields, options.calculatedFields);
 	}
 	return dataMap;
 };
@@ -2800,7 +2918,11 @@ CT_PivotCacheRecords.prototype.getDataMap = function(options) {
 		indexes: indexes,
 		cacheFieldsWithData: filters.cacheFieldsWithDataOther,
 		dataFields: options.dataFields,
-		itemsWithDataMap: itemsWithDataMap
+		itemsWithDataMap: itemsWithDataMap,
+		calculatedFields: options.dataFields.map(function(dataField) {
+			const cacheField = options.cacheFields[dataField.fld];
+			return cacheField && cacheField.formula ? new PivotCalculatedField(options.cacheDefinition, dataField.fld) : null;
+		})
 	});
 	if (isNeedAddRowsForCalculated) {
 		this._addRowsForCalculated({
@@ -6542,6 +6664,12 @@ CT_pivotTableDefinition.prototype.updateCacheData = function (dataRef) {
 	newCacheDefinition.fromDataRef(dataRef);
 	newCacheDefinition.setPivotCacheId(this.cacheDefinition.getPivotCacheId());
 	newCacheDefinition.calculatedItems = this.cacheDefinition.calculatedItems;
+	// calculated fields have no source column: carry them over after the source fields
+	this.cacheDefinition.getFields().forEach(function(cacheField) {
+		if (cacheField.formula && newCacheDefinition.cacheFields && -1 === newCacheDefinition.getFieldIndexByName(cacheField.asc_getName())) {
+			newCacheDefinition.cacheFields.cacheField.push(cacheField.clone());
+		}
+	});
 
 	let oldPivotField = this.asc_getPivotFields().map(function(elem) {return elem.clone();});
 	var pivotFieldsMap = new Map();
@@ -6632,7 +6760,7 @@ CT_pivotTableDefinition.prototype._updateCacheDataUpdatePivotFieldsIndexes = fun
 	for (i = 0; i < oldCacheFields.length; ++i) {
 		var oldPivotField = oldPivotFields[i];
 		var oldCacheField = oldCacheFields[i];
-		if(!oldCacheField.databaseField) {
+		if(!oldCacheField.databaseField && !oldCacheField.formula) {
 			continue;
 		}
 		var newIndex = cacheDefinitionMap.get(oldCacheField.asc_getName());
@@ -6657,7 +6785,7 @@ CT_pivotTableDefinition.prototype._updateCacheDataUpdatePivotFieldsIndexesGroup 
 	for (i = 0; i < oldCacheFields.length; ++i) {
 		var oldPivotField = oldPivotFields[i];
 		var oldCacheField = oldCacheFields[i];
-		if (!oldCacheField.databaseField && oldPivotField) {
+		if (!oldCacheField.databaseField && !oldCacheField.formula && oldPivotField) {
 			var oldBaseCacheField = oldCacheFields[oldCacheField.getGroupBase()];
 			if (oldBaseCacheField) {
 				var newBaseIndex = cacheDefinitionMap.get(oldBaseCacheField.asc_getName());
@@ -10994,6 +11122,8 @@ function PivotDataManager(pivot) {
  * @param {PivotDataElem} dataRow
  */
 PivotDataManager.prototype.init = function(dataRow) {
+	/**@type {Object<number, PivotCalculatedField>} */
+	this.calculatedFields = {};
 	/**@type {PivotDataElem[]} */
 	this.rowCache = [dataRow];
 	/**@type {PivotDataElem[]} */
@@ -11152,11 +11282,30 @@ PivotDataManager.prototype.getCellValue = function(options) {
 	   const subtotal = this.getDataElemSubtotal(options.colArrayV, cachedColDepth, val, colItem);
 	   if (subtotal) {
 		   const total = subtotal.total[options.dataIndex];
-		   return total.getCellValue(dataField.subtotal, data.subtotalType, rowItem.t, colItem.t);
+		   const cellValue = total.getCellValue(dataField.subtotal, data.subtotalType, rowItem.t, colItem.t);
+		   if (!cellValue && total.isEmpty()) {
+			   return this.getEmptyCalculatedValue(options.dataIndex, rowItem, colItem);
+		   }
+		   return cellValue;
 	   }
-	   return null;
+	   return this.getEmptyCalculatedValue(options.dataIndex, rowItem, colItem);
    }
-   return null;
+   return this.getEmptyCalculatedValue(options.dataIndex, rowItem, colItem);
+};
+/**
+ * Excel evaluates a calculated field even where no record falls: its formula on sums of 0 (0, or #DIV/0!).
+ * @return {CCellValue | null}
+ */
+PivotDataManager.prototype.getEmptyCalculatedValue = function(dataIndex, rowItem, colItem) {
+	const dataField = this.pivot.asc_getDataFields()[dataIndex];
+	const cacheField = dataField && this.pivot.asc_getCacheFields()[dataField.asc_getIndex()];
+	if (!cacheField || !cacheField.formula || (rowItem && Asc.c_oAscItemType.Blank === rowItem.t) || (colItem && Asc.c_oAscItemType.Blank === colItem.t)) {
+		return null;
+	}
+	if (!this.calculatedFields[dataIndex]) {
+		this.calculatedFields[dataIndex] = new PivotCalculatedField(this.pivot.cacheDefinition, dataField.asc_getIndex());
+	}
+	return this.calculatedFields[dataIndex].getCellValue([]);
 };
 /**
  * @callback ShowAsFunction
