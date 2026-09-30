@@ -9574,13 +9574,36 @@
 		var sheetMemory = this.getColData(nCol);
 		sheetMemory.checkIndex(nRow);
 	};
-	/** @returns {{src: string, alt: string}|null} picture placed in a (non-formula) cell */
-	Worksheet.prototype.getCellImage = function (row, col) {
-		let vm = null;
+	/**
+	 * @returns {{src: string, alt: string}|null} picture placed in the cell, or shown by a formula that is a reference to
+	 * such a cell (=Bilan!$B$2, or a defined name of it), as Excel shows it
+	 */
+	Worksheet.prototype.getCellImage = function (row, col, opt_depth) {
+		let vm = null, ws = null, bbox = null;
 		this._getCellNoEmpty(row, col, function (cell) {
-			vm = cell && !cell.formulaParsed ? cell.vm : null;
+			if (cell && !cell.formulaParsed) {
+				vm = cell.vm;
+			} else if (cell) {
+				// processFormula moves a shared formula's references to this cell
+				cell.processFormula(function (parsed) {
+					// ponytail: only a lone reference; a function returning one (IF, INDEX...) would need pictures in calc results
+					let elem = parsed.outStack && parsed.outStack.length === 1 ? parsed.outStack[0] : null;
+					if (elem && (elem.type === cElementType.name || elem.type === cElementType.name3D)) {
+						elem = elem.toRef();
+					}
+					if (elem && (elem.type === cElementType.cell || elem.type === cElementType.cell3D)) {
+						ws = elem.getWS();
+						bbox = elem.getBBox0();
+						bbox = bbox && bbox.clone();
+					}
+				});
+			}
 		});
-		return vm ? this.workbook.getCellImage(vm) : null;
+		if (vm) {
+			return this.workbook.getCellImage(vm);
+		}
+		let depth = opt_depth || 0;
+		return ws && bbox && ws.workbook === this.workbook && depth < 32 ? ws.getCellImage(bbox.r1, bbox.c1, depth + 1) : null;
 	};
 	/** Places a picture ("image1.png" in the document media) in a cell; the caller opens the history point */
 	Worksheet.prototype.setCellImage = function (row, col, mediaName, alt) {

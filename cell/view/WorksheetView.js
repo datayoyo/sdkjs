@@ -14018,7 +14018,7 @@ function isAllowPasteLink(pastedWb) {
 		AscCommonExcel.g_ActiveCell = new Asc.Range(c1, r1, c1, r1);
         cell_info.text = c.getValueForEdit(true);
         cell_info.cellImage = this.model.getCellImage(r1, c1);
-        if (cell_info.cellImage) {
+        if (cell_info.cellImage && !c.isFormula()) {
             cell_info.text = "";//a placed picture has no editable value (Excel shows an empty formula bar)
         }
 
