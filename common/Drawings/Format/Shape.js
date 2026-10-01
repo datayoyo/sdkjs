@@ -2558,11 +2558,13 @@
 					if (clipW <= 0) {
 						clipW = 0.01;
 					}
-					var clipH = rect.b - rect.t + Diff - b_ins - t_ins;
+					// Excel clips the text of a worksheet shape at the shape, not inside its insets.
+					var clipInsT = this.worksheet ? 0 : t_ins, clipInsB = this.worksheet ? 0 : b_ins;
+					var clipH = rect.b - rect.t + Diff - clipInsB - clipInsT;
 					if (clipH < 0) {
 						clipH = 0.01;
 					}
-					oClipRect = {x: rect.l - Diff, y: rect.t - Diff + t_ins, w: clipW, h: clipH};
+					oClipRect = {x: rect.l - Diff, y: rect.t - Diff + clipInsT, w: clipW, h: clipH};
 				} else {
 					oClipRect = {x: -1.6, y: t_ins, w: this.extX + 3.2, h: this.extY - b_ins};
 				}
