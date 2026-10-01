@@ -616,7 +616,7 @@ function isAllowPasteLink(pastedWb) {
 		this.maxRowHeightPx = AscCommonExcel.convertPtToPx(Asc.c_oAscMaxRowHeight);
 		this.defaultRowDescender = this.stringRender.lines[0].d;
 		AscCommonExcel.oDefaultMetrics.RowHeight = Math.min(Asc.c_oAscMaxRowHeight,
-			this.model.getDefaultHeight() || AscCommonExcel.convertPxToPt(this.headersHeightByFont));
+			this.model.getDefaultHeight() || this.model.getStatedDefaultHeight() || AscCommonExcel.convertPxToPt(this.headersHeightByFont));
 		this.defaultRowHeightPx = AscCommonExcel.convertPtToPx(AscCommonExcel.oDefaultMetrics.RowHeight);
 
 		var tmSpace = this._roundTextMetrics(this.stringRender.measureString(" "));
@@ -1063,7 +1063,7 @@ function isAllowPasteLink(pastedWb) {
 
 		var tm = this._roundTextMetrics(this.stringRender.measureString("A"));
 		var headersHeightByFont = tm.height;
-		this.defaultRowHeightForPrintPt = Math.min(Asc.c_oAscMaxRowHeight, this.model.getDefaultHeight() || AscCommonExcel.convertPxToPt(headersHeightByFont));
+		this.defaultRowHeightForPrintPt = Math.min(Asc.c_oAscMaxRowHeight, this.model.getDefaultHeight() || this.model.getStatedDefaultHeight() || AscCommonExcel.convertPxToPt(headersHeightByFont));
 
 		if (needReplacePpi) {
 			this.drawingCtx.ppiY = truePPIY;

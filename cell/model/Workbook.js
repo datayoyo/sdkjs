@@ -9155,6 +9155,11 @@
 			dRes = this.oSheetFormatPr.oAllRow.h;
 		return dRes;
 	};
+	// sheetFormatPr defaultRowHeight without customHeight: Excel still lays the rows that state no height out at it.
+	Worksheet.prototype.getStatedDefaultHeight = function () {
+		var oAllRow = this.oSheetFormatPr.oAllRow;
+		return oAllRow && oAllRow.h > 0 ? oAllRow.h : null;
+	};
 	Worksheet.prototype.getRowHeight = function(index) {
 		var res;
 		this._getRowNoEmptyWithAll(index, function(row){
