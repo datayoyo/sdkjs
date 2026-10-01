@@ -3225,9 +3225,16 @@
             }
 
             var num_format = AscCommon.oNumFormatCache.get(sFormatCode);
-            return num_format.formatToChart(this.pt.val)
+            return num_format.formatToChart(this.pt.val * this.getValAxisMultiplier())
         }
         return "";
+    };
+    // Excel shows a value label in the display units of its value axis (thousands...), as the axis labels.
+    CDLbl.prototype.getValAxisMultiplier = function() {
+        var oChart = this.series && this.series.parent;
+        var oValAx = oChart && oChart.axId && oChart.getAxisByTypes ? oChart.getAxisByTypes().valAx[0] : null;
+        var oChartSpace = oValAx && this.getChartSpace();
+        return oChartSpace ? oChartSpace.getMultiplier(oValAx) : 1;
     };
     CDLbl.prototype.getCategoryName = function() {
         if(this.series && this.pt) {
