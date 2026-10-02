@@ -12474,7 +12474,7 @@ function RangeDataManagerElem(bbox, data)
 					num = 1;
 				}
 
-				res = arr[num - 1];
+				res = arr[Math.min(num, arr.length) - 1];
 			}
 			else
 			{
@@ -12486,14 +12486,13 @@ function RangeDataManagerElem(bbox, data)
 						sum += res;
 					}
 				} else {
-					res = arr[this.Val - 1];
+					//fewer values than N: all of them pass, as in Excel
+					res = arr[Math.min(this.Val, arr.length) - 1];
 				}
 			}
 		}
-		if(null != res)
-		{
-			this.FilterVal = res;
-		}
+		//no values, no cut-off: not the one read from the file
+		this.FilterVal = null != res ? res : null;
 	};
 
 	Top10.prototype.asc_getFilterVal = function () { return this.FilterVal; };
