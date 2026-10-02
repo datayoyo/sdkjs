@@ -9479,7 +9479,7 @@
             var oThis = this;
             if ( c_oSer_Dxf.Alignment == type )
             {
-                oDxf.align = new AscCommonExcel.Align();
+                oDxf.align = AscCommonExcel.Align.createEmpty();
                 res = this.bcr.Read2Spreadsheet(length, function(t,l){
                     return oThis.ReadAligment(t,l,oDxf.align);
                 });
@@ -15133,7 +15133,7 @@
 			}
 			this.xf.fill = newContext;
 		} else if ("alignment" === elem) {
-			newContext = new AscCommonExcel.Align();
+			newContext = AscCommonExcel.Align.createEmpty();
 			if (newContext.readAttributes) {
 				newContext.readAttributes(attr, uq);
 			}

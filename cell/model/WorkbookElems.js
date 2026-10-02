@@ -5147,6 +5147,10 @@ var g_oFontProperties = {
 	}
 
 	Align.prototype.Properties = Asc.c_oSerAligmentTypes;
+	//a dxf's alignment: only the attributes it sets override the cell's
+	Align.createEmpty = function () {
+		return new Align({hor: null, indent: null, RelativeIndent: null, readingOrder: null, shrink: null, angle: null, ver: null, wrap: null});
+	};
 	Align.prototype.getHash = function () {
 		if (!this._hash) {
 			this._hash = this.hor + '|' + this.indent + '|' + this.readingOrder + '|' + this.RelativeIndent + '|' + this.shrink + '|' +
@@ -5161,7 +5165,7 @@ var g_oFontProperties = {
 		this._index = val;
 	};
 	Align.prototype._mergeProperty = function (first, second, def) {
-		if (def != first) {
+		if (null != first && def != first) {
 			return first;
 		} else {
 			return second;
