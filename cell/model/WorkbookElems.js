@@ -5151,6 +5151,16 @@ var g_oFontProperties = {
 	Align.createEmpty = function () {
 		return new Align({hor: null, indent: null, RelativeIndent: null, readingOrder: null, shrink: null, angle: null, ver: null, wrap: null});
 	};
+	//the properties this alignment sets, the others from align (a dxf's over the next one's, or over a cell's)
+	Align.prototype.fillUnset = function (align) {
+		var res = this.clone();
+		['hor', 'indent', 'RelativeIndent', 'readingOrder', 'shrink', 'angle', 'ver', 'wrap'].forEach(function (p) {
+			if (null == res[p]) {
+				res[p] = align[p];
+			}
+		});
+		return res;
+	};
 	Align.prototype.getHash = function () {
 		if (!this._hash) {
 			this._hash = this.hor + '|' + this.indent + '|' + this.readingOrder + '|' + this.RelativeIndent + '|' + this.shrink + '|' +
