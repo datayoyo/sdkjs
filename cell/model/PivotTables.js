@@ -11127,11 +11127,28 @@ PivotFormatsManager.prototype.get = function(query) {
 		if (result.border === null && dxf && dxf.border) {
 			result.setBorder(dxf.getBorder());
 		}
-		if (result.align === null && dxf && dxf.align) {
-			result.setAlign(dxf.getAlign());
+		if (dxf && dxf.align) {
+			//formats on the same cells add up as in Excel: what the first one's alignment leaves unset comes from the next
+			result.setAlign(result.align === null ? dxf.getAlign() : result.align.fillUnset(dxf.getAlign()));
 		}
 	}
-	return suitableFormatsCollectionItems.length === 0 ? null : result;
+	if (suitableFormatsCollectionItems.length === 0) {
+		return null;
+	}
+	//as Excel, the formats apply over the default cell format (Normal): what they leave unset is Normal's
+	const normalXf = AscCommonExcel.g_StyleCache.firstXf;
+	if (!normalXf) {
+		return result;
+	}
+	const align = result.align;
+	result.setAlign(null);
+	let res = normalXf.merge(result);
+	if (align) {
+		//not Align.merge, which keeps Normal's where a dxf sets the default (vertical="bottom")
+		res = res.clone();
+		res.setAlign(align.fillUnset(normalXf.align || AscCommonExcel.g_oDefaultFormat.AlignAbs));
+	}
+	return res;
 };
 /**
  * @class
@@ -12411,12 +12428,7 @@ PivotDataManager.prototype.update = function(dataRow) {
 				field: this.getFieldIndex(isGrandRow, rowArrayV, colArrayV),
 				axis: axis,
 			});
-			if (formatting !== null) {
-				formatting.num = formatting.num || (dataFields[dataIndex].num)
-				cell.setStyle(formatting);
-			} else if (dataFields[dataIndex].num){
-				cell.setNum(dataFields[dataIndex].num);
-			}
+			cell.setStyle(formatting);
 			if (dataFields[dataIndex].num){
 				cell.setNum(dataFields[dataIndex].num);
 			}
