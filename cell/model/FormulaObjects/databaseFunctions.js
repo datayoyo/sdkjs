@@ -48,6 +48,11 @@ function (window, undefined) {
 	var cError = AscCommonExcel.cError;
 	var argType = Asc.c_oAscFormulaArgumentType;
 
+	// as Excel (and cSUM), a sum whose addends cancel out but for their last bits is 0
+	function snapSumToZero(sum, largest) {
+		return Math.abs(sum) < largest * 1e-15 ? 0 : sum;
+	}
+
 	function StatisticOnlineAlgorithm(isCalculated) {
 		this.isCalculated = !!isCalculated;
 		this.reset();
@@ -59,6 +64,8 @@ function (window, undefined) {
 		this.min = Number.POSITIVE_INFINITY;
 		this.max = Number.NEGATIVE_INFINITY;
 		this.sum = 0;
+		// largest absolute addend of sum
+		this.largest = 0;
 		this.product = 1;
 		this.mean = 0;
 		this.M2 = 0;
@@ -66,12 +73,14 @@ function (window, undefined) {
 		// pivot calculated field: the sums of the source fields its formula names
 		this.calculatedField = null;
 		this.refs = null;
+		this.refsLargest = null;
 	};
 	StatisticOnlineAlgorithm.prototype.union = function (val, isCalculated) {
 		this.isCalculated = !!isCalculated;
 		this.min = Math.min(this.min, val.min);
 		this.max = Math.max(this.max, val.max);
 		this.sum = this.sum + val.sum;
+		this.largest = Math.max(this.largest, val.largest);
 		this.product = this.product * val.product;
 		//Parallel Welford's online algorithm
 		var delta = val.mean - this.mean;
@@ -83,22 +92,26 @@ function (window, undefined) {
 		this.countNums = this.countNums + val.countNums;
 		this.errorType = this.errorType || val.errorType;
 		if (val.calculatedField) {
-			this._addRefs(val.calculatedField, val.refs);
+			this._addRefs(val.calculatedField, val.refs, val.refsLargest);
 		}
 	};
 	StatisticOnlineAlgorithm.prototype.addCalculated = function (calculatedField, refs) {
 		this.count++;
-		this._addRefs(calculatedField, refs);
+		this._addRefs(calculatedField, refs, refs.map(Math.abs));
 	};
-	StatisticOnlineAlgorithm.prototype._addRefs = function (calculatedField, refs) {
+	StatisticOnlineAlgorithm.prototype._addRefs = function (calculatedField, refs, largest) {
 		this.calculatedField = calculatedField;
 		if (!this.refs) {
 			this.refs = refs.map(function () {
 				return 0;
 			});
+			this.refsLargest = refs.map(function () {
+				return 0;
+			});
 		}
 		for (var i = 0; i < refs.length; ++i) {
 			this.refs[i] += refs[i];
+			this.refsLargest[i] = Math.max(this.refsLargest[i], largest[i]);
 		}
 	};
 	StatisticOnlineAlgorithm.prototype.add = function (val) {
@@ -107,6 +120,7 @@ function (window, undefined) {
 		this.min = Math.min(this.min, val);
 		this.max = Math.max(this.max, val);
 		this.sum += val;
+		this.largest = Math.max(this.largest, Math.abs(val));
 		this.product *= val;
 		//Welford's online algorithm
 		var delta = val - this.mean;
@@ -132,7 +146,7 @@ function (window, undefined) {
 		return this.max;
 	};
 	StatisticOnlineAlgorithm.prototype.getSum = function () {
-		return this.sum;
+		return snapSumToZero(this.sum, this.largest);
 	};
 	StatisticOnlineAlgorithm.prototype.getMean = function () {
 		return this.mean;
@@ -180,7 +194,10 @@ function (window, undefined) {
 			}
 		}
 		if (this.calculatedField && Asc.c_oAscItemType.Blank !== type) {
-			return this.calculatedField.getCellValue(this.refs);
+			var refsLargest = this.refsLargest;
+			return this.calculatedField.getCellValue(this.refs.map(function (sum, i) {
+				return snapSumToZero(sum, refsLargest[i]);
+			}));
 		}
 		switch (type) {
 			case Asc.c_oAscItemType.Count:
