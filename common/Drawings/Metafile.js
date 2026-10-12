@@ -1052,7 +1052,7 @@
 					this.WriteUtf8Char(0x3b);
 					break;
 				default:
-					if (code < 0x20 || code >= 0xFFFE)
+					if (code < 0x20 || code === 0xFFFE || code === 0xFFFF)
 						this.WriteXmlEscapeOoxmlChar(code);
 					else
 						this.WriteUtf8Char(code);
@@ -1112,7 +1112,7 @@
 					this.WriteUtf8Char(0x3b);
 					break;
 				default:
-					if (code < 0x20 || code >= 0xFFFE)
+					if (code < 0x20 || code === 0xFFFE || code === 0xFFFF)
 						this.WriteXmlEscapeOoxmlChar(code);
 					else
 						this.WriteUtf8Char(code);
