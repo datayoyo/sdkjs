@@ -5823,7 +5823,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursivelyElem = function(o
  * @param {CT_PivotField} pivotField
  * @param {PivotDataElem} dataMap
  * @param {Map<CT_PivotField, ?Int32Array>} [itemPositions] per field, the position of each cache index x in its
- * items (-1 for none), or null when an x has several items; filled on first use
+ * items (-1 for none), or null when an x has several items or is out of proportion with them; filled on first use
  * @return {?number[]}
  */
 CT_pivotTableDefinition.prototype._getPresentItemIndexes = function(pivotField, dataMap, itemPositions) {
@@ -5839,8 +5839,9 @@ CT_pivotTableDefinition.prototype._getPresentItemIndexes = function(pivotField, 
 				max = Math.max(max, items[i].x);
 			}
 		}
-		positions = new Int32Array(max + 1).fill(-1);
-		for (let i = 0; i < items.length; ++i) {
+		// x comes from the file: an index far beyond the items would size the array after it, so such a field is scanned
+		positions = max < 2 * items.length + 64 ? new Int32Array(max + 1).fill(-1) : null;
+		for (let i = 0; positions && i < items.length; ++i) {
 			if (Asc.c_oAscItemType.Data === items[i].t) {
 				if (-1 !== positions[items[i].x]) {
 					positions = null;
