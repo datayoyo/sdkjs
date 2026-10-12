@@ -7480,8 +7480,9 @@ function parserFormula( formula, parent, _ws ) {
 		if (this.isParsed || !text || !/[\r\n]/.test(text)) {
 			return this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
 		}
-		// line breaks inside "string literals" are text and stay; a 'sheet name' may contain a double quote
-		let spaced = this.Formula = text.replace(/'(?:''|[^'])*'|"(?:""|[^"])*"|[\r\n]/g, function (m) {
+		// line breaks inside "string literals" are text and stay; a 'sheet name'! may contain a double quote (the ! tells
+		// it from the ' that escapes a special character in a table reference, Table1[A'#])
+		let spaced = this.Formula = text.replace(/'(?:''|[^'])*'!|"(?:""|[^"])*"|[\r\n]/g, function (m) {
 			return m.length === 1 ? " " : m;
 		});
 		let res = this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
