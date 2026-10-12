@@ -7439,7 +7439,12 @@ var editor;
 	};
 	spreadsheet_api.prototype.updateWorksheetByPivotTable = function(pivot, changeRes, needUpdateView, updateSelection) {
 		let wsModel = pivot.GetWS();
-		let ws = this.wb.getWorksheet(wsModel.getIndex());
+		// A sheet not shown yet has no view to update: it is laid out from the model when shown. Creating it here measures
+		// the text of its cells, which a big pivot's styles make slow.
+		let ws = this.wb.getWorksheet(wsModel.getIndex(), !updateSelection);
+		if (!ws) {
+			return;
+		}
 		let changedPivots = changeRes.changedPivots;
 		var ranges = changeRes.ranges;
 		if (updateSelection) {
@@ -7720,14 +7725,18 @@ var editor;
 			t.wbModel.dependencyFormulas.lockRecal();
 
 			let pivotTablesChangeRes = [];
+			let rebuiltCaches = new Map();
 			for (let i = 0; i < pivotTables.length; ++i) {
 				let changeRes = t._changePivot(pivotTables[i], opt_confirmation, true, function (ws, pivot) {
-					pivot.refresh();
+					pivot.refresh(rebuiltCaches);
 				});
 				pivotTablesChangeRes.push(changeRes);
 				if (c_oAscError.ID.No !== changeRes.error || c_oAscError.ID.No !== changeRes.warning) {
 					break;
 				}
+			}
+			for (let i = 0; i < pivotTables.length; ++i) {
+				pivotTables[i].fillMissingPivotFields();
 			}
 			t.wbModel.dependencyFormulas.unlockRecal();
 			History.EndTransaction();
@@ -7872,6 +7881,11 @@ var editor;
 		if (success) {
 			let dataRow = updateRes && updateRes.dataRow;
 			ranges = wsModel.updatePivotTable(pivot, pivotChanged, dataRow, true);
+			if (updateRes) {
+				// The cells are written. Refresh-all keeps every pivot's result until the last pivot, and a data tree is
+				// as big as its pivot's source.
+				updateRes.dataRow = null;
+			}
 			pivot.autoFitColumnsWidth(ranges, fitColumnsWidth);
 		} else {
 			pivot.stashEmptyReportRange();//to prevent clearTableStyle while undo
