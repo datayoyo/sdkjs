@@ -2558,13 +2558,11 @@
 					if (clipW <= 0) {
 						clipW = 0.01;
 					}
-					// Excel clips the text of a worksheet shape at the shape, not inside its insets.
-					var clipInsT = this.worksheet ? 0 : t_ins, clipInsB = this.worksheet ? 0 : b_ins;
-					var clipH = rect.b - rect.t + Diff - clipInsB - clipInsT;
+					var clipH = rect.b - rect.t + Diff - b_ins - t_ins;
 					if (clipH < 0) {
 						clipH = 0.01;
 					}
-					oClipRect = {x: rect.l - Diff, y: rect.t - Diff + clipInsT, w: clipW, h: clipH};
+					oClipRect = {x: rect.l - Diff, y: rect.t - Diff + t_ins, w: clipW, h: clipH};
 				} else {
 					oClipRect = {x: -1.6, y: t_ins, w: this.extX + 3.2, h: this.extY - b_ins};
 				}
@@ -5529,6 +5527,12 @@
 					if (oBodyPr.vertOverflow === AscFormat.nVOTOverflow) {
 						return;
 					}
+				}
+				if (this.worksheet) {
+					// Excel clips the text of a worksheet shape at the shape, not inside its insets. Only the drawing: the
+					// shrink-on-overflow autofit measures the text against clipRect, inside the insets.
+					var oInsets = this.getInsets({bodyPr: oBodyPr});
+					clip_rect = {x: clip_rect.x, y: clip_rect.y - oInsets.tIns, w: clip_rect.w, h: clip_rect.h + oInsets.tIns + oInsets.bIns};
 				}
 				if (!oBodyPr || !oBodyPr.upright) {
 					graphics.transform3(transform_);

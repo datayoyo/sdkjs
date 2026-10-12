@@ -5239,7 +5239,13 @@ CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotF
 	var newItems = new CT_Items();
 	cacheField.checkSharedItems(this, index, cacheRecords, oldCacheField);
 	var rangePr = oldCacheField.getGroupRangePr();
-	if (rangePr && rangePr.getFieldGroupType() === cacheField.getFieldGroupType()) {
+	var sharedRangePr = cacheField.getGroupRangePr();
+	if (rangePr && sharedRangePr && rangePr.getFieldGroupType() === sharedRangePr.getFieldGroupType()) {
+		// a cache rebuilt for several pivots: the first of them grouped the field, with the parent groups (Years) it had.
+		// Regrouping it would read its type as Text (its group has a parent) and drop the parent.
+		cacheFieldIndexesMap = pivotField.refreshPivotFieldItem(cacheField.getGroupOrSharedItems(), oldCacheField.getGroupOrSharedItems());
+		pivotField.groupRangePr(cacheField.getGroupOrSharedSize(), cacheField.getGroupOrSharedItems());
+	} else if (rangePr && rangePr.getFieldGroupType() === cacheField.getFieldGroupType()) {
 		var rangePrAuto = cacheField.createGroupRangePr();
 		cacheField.refreshGroupRangePr(index, rangePr.clone(), rangePrAuto);
 		cacheFieldIndexesMap = pivotField.refreshPivotFieldItem(cacheField.getGroupOrSharedItems(), oldCacheField.getGroupOrSharedItems());
@@ -6899,6 +6905,14 @@ CT_pivotTableDefinition.prototype._updateCacheDataUpdatePivotFieldsMap = functio
 CT_pivotTableDefinition.prototype.updateIndexesForNewPivotFields = function (newCacheDefinition, newCTPivotFields, pivotFieldsMap, pivotFieldsIndexesMap) {
 	var newCTPageFields = null;
 	if (this.asc_getPageFields()) {
+		// a page field's selected item is a position in its field's items, which the refresh reorders (new items sorted in)
+		this.asc_getPageFields().forEach(function(pageField) {
+			var itemsMap = null !== pageField.item && pivotFieldsIndexesMap.get(pageField.fld);
+			if (itemsMap) {
+				var newItem = itemsMap.get(pageField.item);
+				pageField.item = undefined !== newItem ? newItem : null;
+			}
+		});
 		newCTPageFields = new CT_PageFields();
 		this._updateCacheDataUpdatePageDataFieldsIndexes(this.asc_getPageFields(), newCTPageFields.pageField, pivotFieldsMap);
 	}

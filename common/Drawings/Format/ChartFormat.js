@@ -3232,7 +3232,9 @@
     // Excel shows a value label in the display units of its value axis (thousands...), as the axis labels.
     CDLbl.prototype.getValAxisMultiplier = function() {
         var oChart = this.series && this.series.parent;
-        var oValAx = oChart && oChart.axId && oChart.getAxisByTypes ? oChart.getAxisByTypes().valAx[0] : null;
+        var aValAx = oChart && oChart.axId && oChart.getAxisByTypes ? oChart.getAxisByTypes().valAx : null;
+        // a scatter or bubble chart has two value axes, the horizontal one first (the plot area assigns them so)
+        var oValAx = aValAx && aValAx.length ? aValAx[aValAx.length - 1] : null;
         var oChartSpace = oValAx && this.getChartSpace();
         return oChartSpace ? oChartSpace.getMultiplier(oValAx) : 1;
     };
