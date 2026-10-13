@@ -7474,17 +7474,53 @@ function parserFormula( formula, parent, _ws ) {
 		}
 		return false;
 	};
+	/**
+	 * Replaces each line break by a space, except inside "string literals", 'quoted sheet names' and [table references]
+	 * (nested, an apostrophe escapes the next character: Table1['[A"B']]), which are kept as they are.
+	 * @param {string} text
+	 * @return {string} of the same length
+	 */
+	function spaceFormulaLineBreaks(text) {
+		let res = "", depth = 0;
+		for (let i = 0; i < text.length; ++i) {
+			let c = text[i];
+			if (depth > 0) {
+				if (c === "'") {
+					res += c + (text[i + 1] || "");
+					++i;
+					continue;
+				} else if (c === "[") {
+					++depth;
+				} else if (c === "]") {
+					--depth;
+				}
+			} else if (c === '"' || c === "'") {
+				let j = text.indexOf(c, i + 1);
+				while (-1 !== j && text[j + 1] === c) {
+					j = text.indexOf(c, j + 2);
+				}
+				if (-1 === j) {
+					j = text.length - 1;
+				}
+				res += text.slice(i, j + 1);
+				i = j;
+				continue;
+			} else if (c === "[") {
+				depth = 1;
+			} else if (c === "\r" || c === "\n") {
+				c = " ";
+			}
+			res += c;
+		}
+		return res;
+	}
 	parserFormula.prototype.parse = function (local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList) {
 		// a line break (Alt+Enter, or \r\n in files saved by Excel) separates tokens like a space; same length, so positions hold
 		let text = this.Formula;
 		if (this.isParsed || !text || !/[\r\n]/.test(text)) {
 			return this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
 		}
-		// line breaks inside "string literals" are text and stay; a 'sheet name'! may contain a double quote (the ! tells
-		// it from the ' that escapes a special character in a table reference, Table1[A'#])
-		let spaced = this.Formula = text.replace(/'(?:''|[^'])*'!|"(?:""|[^"])*"|[\r\n]/g, function (m) {
-			return m.length === 1 ? " " : m;
-		});
+		let spaced = this.Formula = spaceFormulaLineBreaks(text);
 		let res = this._parse(local, digitDelim, parseResult, ignoreErrors, renameSheetMap, tablesMap, opt_pivotNamesList);
 		if (this.Formula === spaced) {
 			this.Formula = text;
