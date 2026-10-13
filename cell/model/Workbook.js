@@ -610,6 +610,8 @@
 		this.changedCellRepeated = null;
 		this.changedRange = null;
 		this.changedRangeRepeated = null;
+		/** @type {?{sheetId: string, ranges: Asc.Range[]}} cells their writer adds as ranges instead, see addToChangedRanges */
+		this.changedCellsByRange = null;
 		this.changedDefName = null;
 		this.changedDefNameRepeated = null;
 		this.changedShared = {};
@@ -1430,6 +1432,10 @@
 		},
 		addToChangedCell2: function(sheetId, row, col) {
 			var t = this;
+			var byRange = this.changedCellsByRange;
+			if (byRange && byRange.sheetId === sheetId && byRange.ranges.some(function(range) {return range.contains(col, row);})) {
+				return;
+			}
 			if (!this.changedCell) {
 				this.changedCell = {};
 			}
@@ -1473,6 +1479,25 @@
 				this.changedDefNameRepeated[nodeId] = 1;
 			}
 			this.changedDefName[nodeId] = 1;
+		},
+		/**
+		 * Runs write, which changes the cells of ranges, then adds ranges as changed: one entry per range instead of one per
+		 * cell, which a broadcast and a recalculation then go through cell by cell (millions of them on a big pivot)
+		 * @param {string} sheetId
+		 * @param {Asc.Range[]} ranges
+		 * @param {Function} write
+		 */
+		addToChangedRanges: function(sheetId, ranges, write) {
+			var outer = this.changedCellsByRange;
+			this.changedCellsByRange = {sheetId: sheetId, ranges: ranges};
+			try {
+				write();
+			} finally {
+				this.changedCellsByRange = outer;
+			}
+			for (var i = 0; i < ranges.length; ++i) {
+				this.addToChangedRange2(sheetId, ranges[i]);
+			}
 		},
 		addToChangedRange: function(sheetId, bbox) {
 			var notifyData = {type: c_oNotifyType.Dirty};
@@ -11066,7 +11091,9 @@
 			newRanges.forEach(function(range) {
 				t.getRange3(range.r1, range.c1, range.r2, range.c2).cleanAll();
 			});
-			this._updatePivotTableCells(pivotTable, dataRow);
+			this.workbook.dependencyFormulas.addToChangedRanges(this.getId(), newRanges, function() {
+				t._updatePivotTableCells(pivotTable, dataRow);
+			});
 		}
 		var res = pivotTable.getReportRanges();
 		multiplyRange.union2(new AscCommonExcel.MultiplyRange(res));
@@ -11282,7 +11309,7 @@
 			const offsetC = isRowItem ? (i === endIndex - 1 ? Asc.st_PIVOT_AREA_OFFSET_END : i - startIndex) : Asc.st_PIVOT_AREA_OFFSET_END;
 			
 			const offset = new Asc.Range(offsetC, offsetR, offsetC, offsetR);
-			const cell = this.getRange4(r, c);
+			const cell = this.getPivotCell(r, c);
 
 			query.offset = offset;
 			const formatting = pivotTable.getFormatting(query);
@@ -11327,7 +11354,7 @@
 			const offsetC = isRowItem ? Asc.st_PIVOT_AREA_OFFSET_END : ((!nextItem || (r1 + nextItem.getR() <= startRow)) ? Asc.st_PIVOT_AREA_OFFSET_END : c - startCol);
 			
 			const offset = new Asc.Range(offsetC, offsetR, offsetC, offsetR);
-			const cell = this.getRange4(r, c);
+			const cell = this.getPivotCell(r, c);
 
 			query.offset = offset;
 			const formatting = pivotTable.getFormatting(query);
@@ -11422,9 +11449,9 @@
 				fieldValues.push(valuesCache[j]);
 				if (AscCommonExcel.st_VALUES !== fieldIndex && field.asc_getFillDownLabelsDefault() && totalTitleRange[j]) {
 					if (rowFieldsOffset) {
-						cells = this.getRange4(r1 + i, c1 + rowFieldsOffset[j]);
+						cells = this.getPivotCell(r1 + i, c1 + rowFieldsOffset[j]);
 					} else {
-						cells = this.getRange4(r1 + j, c1 + i);
+						cells = this.getPivotCell(r1 + j, c1 + i);
 					}
 					cells.setStyle(totalTitleRange[j].getStyle());
 					cells.setValueData(totalTitleRange[j].getValueData());
@@ -11443,9 +11470,9 @@
 				fieldIndex = null;
 				var outline = 0;
 				if (rowFieldsOffset) {
-					cells = this.getRange4(r1 + i, c1 + rowFieldsOffset[r + j]);
+					cells = this.getPivotCell(r1 + i, c1 + rowFieldsOffset[r + j]);
 				} else {
-					cells = this.getRange4(r1 + r + j, c1 + i);
+					cells = this.getPivotCell(r1 + r + j, c1 + i);
 				}
 				if (Asc.c_oAscItemType.Data === item.t) {
 					if (rowFieldsOffset) {
@@ -11671,6 +11698,138 @@
 			return;
 		}
 		pivotTable.dataManager.update(dataRow);
+	};
+	/**
+	 * A cell a pivot writes, given to its writers in place of a Range when the history is off (a batch refresh, as in
+	 * docbuilder). It sets the cell's style and value in the sheet's storage as Range and Cell would, without a
+	 * temporary Cell per call: a big pivot writes millions of cells, and that cost most of its refresh. With the history
+	 * off nothing is recorded; the pivot's report ranges are marked changed as a whole (addToChangedRanges); the views
+	 * are updated by updateWorksheetByPivotTable. Reads, a formula and anything else go through a Range.
+	 * @constructor
+	 * @param {Worksheet} ws
+	 * @param {number} row
+	 * @param {number} col
+	 */
+	function PivotCell(ws, row, col) {
+		this.ws = ws;
+		this.row = row;
+		this.col = col;
+	}
+	/** @type {WeakMap<CellXfs, CellXfs>} a row or column style to what a cell created under it takes, see _initCell */
+	PivotCell.prototype.inheritedStyles = new WeakMap();
+	PivotCell.prototype.getRange = function() {
+		return this.ws.getRange4(this.row, this.col);
+	};
+	/** @return {number} the cell's first word (style index | flags << 24), the cell created as _initCell would */
+	PivotCell.prototype._getHead = function() {
+		var ws = this.ws, row = this.row, col = this.col;
+		var sheetMemory = ws.getColDataNoEmpty(col);
+		if (sheetMemory && sheetMemory.hasIndex(row)) {
+			var head = sheetMemory.getInt32(row, 0);
+			if (0 !== (g_nCellFlag_init & (head >> 24))) {
+				return head;
+			}
+		}
+		var source = null;
+		ws._getRowNoEmpty(row, function(oRow) {
+			var oCol = ws._getColNoEmptyWithAll(col);
+			if (oRow && null != oRow.xfs) {
+				source = oRow.xfs;
+			} else if (null != oCol && null != oCol.xfs) {
+				source = oCol.xfs;
+			}
+			ws.cellsByColRowsCount = Math.max(ws.cellsByColRowsCount, row + 1);
+			ws.nRowsCount = Math.max(ws.nRowsCount, ws.cellsByColRowsCount);
+			if (col >= ws.nColsCount) {
+				ws.setColsCount(col + 1);
+			}
+		});
+		var xfs = source && this.inheritedStyles.get(source);
+		if (source && !xfs) {
+			xfs = g_StyleCache.addXf(source.clone());
+			this.inheritedStyles.set(source, xfs);
+		}
+		sheetMemory = ws.getColData(col);
+		sheetMemory.checkIndex(row);
+		head = (xfs ? xfs.getIndexNumber() : 0) | (this._getFlags(CellValueType.Number, 0) << 24);
+		sheetMemory.setInt32(row, 0, head);
+		sheetMemory.setInt32(row, 4, 0);
+		sheetMemory.setInt32(row, 12, 0);
+		return head;
+	};
+	PivotCell.prototype._getFlags = function(type, flagValue) {
+		return g_nCellFlag_init | (type << 1) | (flagValue << 3);
+	};
+	PivotCell.prototype._setXfs = function(xfs) {
+		var head = this._getHead();
+		this.ws.getColData(this.col).setInt32(this.row, 0, (xfs ? xfs.getIndexNumber() : 0) | (head & 0xff000000));
+	};
+	/** Applies setter, a StyleManager setter, to the cell's style as Cell does */
+	PivotCell.prototype._setStyleProperty = function(setter, val) {
+		var head = this._getHead();
+		var index = head & 0xffffff;
+		var item = {
+			xfs: index > 0 ? g_StyleCache.getXf(index) : null, setStyleInternal: function(xfs) {
+				this.xfs = g_StyleCache.addXf(xfs);
+			}
+		};
+		setter.call(this.ws.workbook.oStyleManager, item, val);
+		this._setXfs(item.xfs);
+	};
+	PivotCell.prototype.setStyle = function(xfs) {
+		if (null !== xfs) {
+			this._setXfs(g_StyleCache.addXf(xfs));
+		}
+	};
+	PivotCell.prototype.setNum = function(val) {
+		this._setStyleProperty(this.ws.workbook.oStyleManager.setNum, val);
+	};
+	PivotCell.prototype.setAlignHorizontal = function(val) {
+		this._setStyleProperty(this.ws.workbook.oStyleManager.setAlignHorizontal, val);
+	};
+	PivotCell.prototype.setIndent = function(val) {
+		if (val >= 0) {
+			this._setStyleProperty(this.ws.workbook.oStyleManager.setIndent, val);
+		}
+	};
+	/** @param {UndoRedoData_CellValueData} val */
+	PivotCell.prototype.setValueData = function(val) {
+		var head = this._getHead();
+		var row = this.row, sheetMemory = this.ws.getColData(this.col);
+		if (null != val.formula || null == val.value || 0 !== sheetMemory.getInt32(row, 4)) {
+			this.getRange().setValueData(val);
+			return;
+		}
+		var value = val.value, xf = head & 0xffffff, wb = this.ws.workbook;
+		sheetMemory.setInt32(row, 4, 0);
+		if (null != value.number) {
+			sheetMemory.setInt32(row, 0, xf | (this._getFlags(value.type, 1) << 24));
+			sheetMemory.setFloat64(row, 8, value.number);
+		} else if (null != value.text || null != value.multiText) {
+			sheetMemory.setInt32(row, 0, xf | (this._getFlags(value.type, 2) << 24));
+			sheetMemory.setInt32(row, 8, null != value.text ? wb.sharedStrings.addText(value.text) : wb.sharedStrings.addMultiText(value.multiText));
+			sheetMemory.setInt32(row, 12, value.vm || 0);
+		} else {
+			sheetMemory.setInt32(row, 0, xf | (this._getFlags(value.type, 0) << 24));
+			sheetMemory.setInt32(row, 12, value.vm || 0);
+		}
+	};
+	PivotCell.prototype.getStyle = function() {
+		return this.getRange().getStyle();
+	};
+	PivotCell.prototype.getValueData = function() {
+		return this.getRange().getValueData();
+	};
+	PivotCell.prototype.getValueWithFormatSkipToSpace = function() {
+		return this.getRange().getValueWithFormatSkipToSpace();
+	};
+	/**
+	 * @param {number} row
+	 * @param {number} col
+	 * @return {PivotCell | Range} the cell a pivot writer sets
+	 */
+	Worksheet.prototype.getPivotCell = function(row, col) {
+		return AscCommon.History.Is_On() ? this.getRange4(row, col) : new PivotCell(this, row, col);
 	};
 	/**
 	 * @param {CT_pivotTableDefinition} pivotTable 

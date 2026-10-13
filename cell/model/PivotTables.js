@@ -309,14 +309,49 @@ var pivotCollator = null;
  * @param {string} b
  * @return {number}
  */
-function cmpPivotStrings(a, b) {
+function getPivotCollatorCompare() {
 	var locale = AscCommon.g_oDefaultCultureInfo ? AscCommon.g_oDefaultCultureInfo.Name : "en";
 	if (!pivotCollator || pivotCollator.locale !== locale) {
 		pivotCollator = {locale: locale, compare: new Intl.Collator(locale).compare};
 	}
-	var compare = pivotCollator.compare;
-	var aWord = a.replace(/['-]/g, ""), bWord = b.replace(/['-]/g, "");
+	return pivotCollator.compare;
+}
+function cmpPivotStrings(a, b) {
+	return cmpPivotWords(getPivotCollatorCompare(), a, a.replace(/['-]/g, ""), b, b.replace(/['-]/g, ""));
+}
+function cmpPivotWords(compare, a, aWord, b, bWord) {
 	return compare(aWord, bWord) || (a.length - aWord.length) - (b.length - bWord.length) || compare(a, b);
+}
+/**
+ * Sorts items as cmpPivotItems orders them, each item's value read and stripped once rather than at every comparison
+ * (a field with 100 000 items costs two million comparisons)
+ * @param {CT_Item[]} items
+ * @param {CT_SharedItems} sharedItems
+ * @param {number} sign 1 ascending, -1 descending
+ */
+function sortPivotItems(items, sharedItems, sign) {
+	var compare = getPivotCollatorCompare();
+	var keyed = items.map(function(item) {
+		var sharedItem = sharedItems.Items.get(item.x);
+		var type = sharedItem.type, val = sharedItem.val;
+		return {item: item, type: type, val: val, word: c_oAscPivotRecType.String === type ? val.replace(/['-]/g, "") : null};
+	});
+	keyed.sort(function(a, b) {
+		var res = 0;
+		if (a.type === b.type) {
+			if (c_oAscPivotRecType.String === a.type) {
+				res = cmpPivotWords(compare, a.val, a.word, b.val, b.word);
+			} else if (c_oAscPivotRecType.Missing !== a.type) {
+				res = a.val - b.val;
+			}
+		} else {
+			res = a.type - b.type;
+		}
+		return sign * res;
+	});
+	for (var i = 0; i < keyed.length; ++i) {
+		items[i] = keyed[i].item;
+	}
 }
 function cmpPivotItems(sharedItems, a, b) {
 	var sharedItem = sharedItems.Items.get(a.x);
@@ -2914,6 +2949,10 @@ CT_PivotCacheRecords.prototype.getDataMap = function(options) {
 	const calculatedIndexes = indexes.map(function(fld, index) {
 		return t._getCalculatedIndexes(options.cacheFields, fld);
 	});
+	// Without calculated items no element is calculated: the two passes below would only walk the whole map
+	const hasCalculatedItems = calculatedIndexes.some(function(itemIndexes) {
+		return itemIndexes && itemIndexes.length > 0;
+	});
 	let isNeedAddRowsForCalculated = false;
 	if (options.colIndexes.length !== 0) {
 		options.colIndexes.forEach(function(_, index) {
@@ -2946,17 +2985,19 @@ CT_PivotCacheRecords.prototype.getDataMap = function(options) {
 			endIndex: options.rowIndexes.length
 		});
 	}
-	this._addCalculatedInDataMap({
-		currentDataMap: dataMap,
-		cacheFields: options.cacheFields,
-		indexes: indexes,
-		cacheFieldsWithData: options.cacheFieldsWithData,
-		currentIndex: 0,
-		dataFields: options.dataFields,
-		itemsWithDataMap: itemsWithDataMap,
-		calculatedIndexes: calculatedIndexes
-	});
-	const err = this._fillDataMapCalculated({
+	if (hasCalculatedItems) {
+		this._addCalculatedInDataMap({
+			currentDataMap: dataMap,
+			cacheFields: options.cacheFields,
+			indexes: indexes,
+			cacheFieldsWithData: options.cacheFieldsWithData,
+			currentIndex: 0,
+			dataFields: options.dataFields,
+			itemsWithDataMap: itemsWithDataMap,
+			calculatedIndexes: calculatedIndexes
+		});
+	}
+	const err = hasCalculatedItems && this._fillDataMapCalculated({
 		cacheDefinition: options.cacheDefinition,
 		dataMap: dataMap,
 		currentDataMap: dataMap,
@@ -2969,7 +3010,12 @@ CT_PivotCacheRecords.prototype.getDataMap = function(options) {
 		itemsMapArray: []
 	})
 	this._getDataMapTotal(dataMap, 0, indexes.length);
-	this._getDataMapSubtotal(dataMap, 0, options.rowIndexes);
+	if (options.colIndexes.length > 0) {
+		this._getDataMapSubtotal(dataMap, 0, options.rowIndexes);
+	} else {
+		// without column fields every subtotal is empty and nothing reads them: only the root's is laid out (the column items)
+		dataMap.subtotal = {};
+	}
 	this._getDataMapApplyLabelFilters(dataMap, indexes, options.rowIndexes, options.colIndexes, filters.labelFiltersRowCols, options.dataFields);
 	if (!AscCommon.isEmptyObject(filters.cacheFieldsWithDataRowCols)) {
 		this._fillVisibleFieldsRowCol(dataMap, 0, indexes, filters.cacheFieldsWithDataRowCols);
@@ -5187,11 +5233,19 @@ CT_pivotTableDefinition.prototype.refreshBaseItemIndexes = function (oldFieldIte
 
 CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotField, cacheRecords, cacheField, oldCacheField) {
 	var item, i, j, newItem, equalMap = new Map(), cacheFieldIndexesMap = new Map();
-	var pivotFieldOld = pivotField.clone();
+	// for the undo only: a field of 100 000 items is a heavy copy
+	var historyOn = History.Is_On();
+	var pivotFieldOld = historyOn ? pivotField.clone() : null;
 	var newItems = new CT_Items();
 	cacheField.checkSharedItems(this, index, cacheRecords, oldCacheField);
 	var rangePr = oldCacheField.getGroupRangePr();
-	if (rangePr && rangePr.getFieldGroupType() === cacheField.getFieldGroupType()) {
+	var sharedRangePr = cacheField.getGroupRangePr();
+	if (rangePr && sharedRangePr && rangePr.getFieldGroupType() === sharedRangePr.getFieldGroupType()) {
+		// a cache rebuilt for several pivots: the first of them grouped the field, with the parent groups (Years) it had.
+		// Regrouping it would read its type as Text (its group has a parent) and drop the parent.
+		cacheFieldIndexesMap = pivotField.refreshPivotFieldItem(cacheField.getGroupOrSharedItems(), oldCacheField.getGroupOrSharedItems());
+		pivotField.groupRangePr(cacheField.getGroupOrSharedSize(), cacheField.getGroupOrSharedItems());
+	} else if (rangePr && rangePr.getFieldGroupType() === cacheField.getFieldGroupType()) {
 		var rangePrAuto = cacheField.createGroupRangePr();
 		cacheField.refreshGroupRangePr(index, rangePr.clone(), rangePrAuto);
 		cacheFieldIndexesMap = pivotField.refreshPivotFieldItem(cacheField.getGroupOrSharedItems(), oldCacheField.getGroupOrSharedItems());
@@ -5228,18 +5282,17 @@ CT_pivotTableDefinition.prototype.refreshPivotFieldItem = function(index, pivotF
 		var sortVal = pivotField.getSortVal();
 		if (null !== sortVal && -1 === pivotField.getSortDataIndex()) {
 			var sign = Asc.c_oAscSortOptions.Ascending === sortVal ? 1 : -1;
-			var sharedItems = cacheField.getGroupOrSharedItems();
-			newItems.item.sort(function(a, b) {
-				return sign * cmpPivotItems(sharedItems, a, b);
-			});
+			sortPivotItems(newItems.item, cacheField.getGroupOrSharedItems(), sign);
 		}
 		this.refreshBaseItemIndexes(pivotField.items.item, newItems.item, index);
 		pivotField.items = newItems;
 	}
 	pivotField.checkSubtotal();
-	History.Add(AscCommonExcel.g_oUndoRedoPivotTables, AscCH.historyitem_PivotTable_PivotField,
-		this.worksheet ? this.worksheet.getId() : null, null,
-		new AscCommonExcel.UndoRedoData_PivotField(this.Get_Id(), index, pivotFieldOld, pivotField.clone()));
+	if (historyOn) {
+		History.Add(AscCommonExcel.g_oUndoRedoPivotTables, AscCH.historyitem_PivotTable_PivotField,
+			this.worksheet ? this.worksheet.getId() : null, null,
+			new AscCommonExcel.UndoRedoData_PivotField(this.Get_Id(), index, pivotFieldOld, pivotField.clone()));
+	}
 	return cacheFieldIndexesMap;
 };
 CT_pivotTableDefinition.prototype.getFilterMaps = function(cacheFieldsWithData) {
@@ -5441,6 +5494,7 @@ CT_pivotTableDefinition.prototype.updateRowColItems = function () {
 	let rowItems = null;
 	let colItems = null;
 	let indexValues = null;
+	const itemPositions = new Map();
 	if (rowFields) {
 		rowItems = new CT_rowItems();
 		indexValues = this.getRowFieldsValuesIndex();
@@ -5454,6 +5508,7 @@ CT_pivotTableDefinition.prototype.updateRowColItems = function () {
 			dataIndex: 0,
 			dataFields: dataFields,
 			indexValues: indexValues,
+			itemPositions: itemPositions,
 			showAll: false
 		});
 		this._updateRowColItemsGrandTotal(this.rowGrandTotals, indexValues, rowItems.i, rowFields, dataFields);
@@ -5471,6 +5526,7 @@ CT_pivotTableDefinition.prototype.updateRowColItems = function () {
 			dataIndex: 0,
 			dataFields: dataFields,
 			indexValues: indexValues,
+			itemPositions: itemPositions,
 			showAll: false
 		});
 		this._updateRowColItemsGrandTotal(this.colGrandTotals, indexValues, colItems.i, colFields, dataFields);
@@ -5501,6 +5557,7 @@ CT_pivotTableDefinition.prototype.updateRowColItems = function () {
  * @property {number} index
  * @property {number} dataIndex
  * @property {number} indexValues
+ * @property {Map<CT_PivotField, ?Int32Array>} itemPositions see _getPresentItemIndexes
  * @property {boolean} isCol
  * @property {boolean} showAll
  */
@@ -5517,6 +5574,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 	const index = options.index;
 	const dataIndex = options.dataIndex;
 	const indexValues = options.indexValues;
+	const itemPositions = options.itemPositions;
 	const isCol = options.isCol;
 	let showAll = options.showAll;
 	let parentI = options.parentI;
@@ -5545,6 +5603,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 							indexItem: indexItem,
 							parentI: parentI,
 							indexValues: indexValues,
+							itemPositions: itemPositions,
 							showAll: showAll,
 							sd: true
 						});
@@ -5556,11 +5615,15 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 	} else {
 		let pivotField = pivotFields[x];
 		if (pivotField && pivotField.items) {
+			const present = showAll || pivotField.showAll ? null : this._getPresentItemIndexes(pivotField, dataMap, itemPositions);
 			const sortDataIndex = pivotField.getSortDataIndex();
 			if (c_oAscFieldSortType.Manual !== pivotField.sortType && 0 <= sortDataIndex && sortDataIndex < dataFieldsLength) {
 				pivotField = pivotField.clone();
 				const dataField = dataFields[sortDataIndex];
-				const sortedPivotItems = pivotField.items.item.map(function(currentValue, index) {
+				const pivotItems = pivotField.items.item;
+				const sortedPivotItems = present ? Array.from(present, function(index) {
+					return {item: pivotItems[index], index: index};
+				}) : pivotItems.map(function(currentValue, index) {
 					return {item: currentValue, index: index};
 				});
 				const sign = Asc.c_oAscSortOptions.Ascending == pivotField.sortType ? 1 : -1;
@@ -5605,6 +5668,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 								indexItem: itemIndex,
 								parentI: parentI,
 								indexValues: indexValues,
+								itemPositions: itemPositions,
 								showAll: showAll,
 								sd: item.sd
 							});
@@ -5613,7 +5677,9 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 					}
 				}
 			} else {
-				for (let indexItem = 0; indexItem < pivotField.items.item.length; ++indexItem) {
+				const count = present ? present.length : pivotField.items.item.length;
+				for (let k = 0; k < count; ++k) {
+					const indexItem = present ? present[k] : k;
 					const item = pivotField.items.item[indexItem];
 					if (Asc.c_oAscItemType.Data === item.t) {
 						let subDataMap = dataMap.vals[item.x];
@@ -5637,6 +5703,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 								indexItem: indexItem,
 								parentI: parentI,
 								indexValues: indexValues,
+								itemPositions: itemPositions,
 								showAll: showAll,
 								sd: item.sd
 							});
@@ -5661,6 +5728,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
  * @property {number} dataIndex
  * @property {number} indexValues
  * @property {number} indexItem
+ * @property {Map<CT_PivotField, ?Int32Array>} itemPositions
  * @property {boolean} isCol
  * @property {boolean} showAll
  * @property {boolean} sd
@@ -5712,6 +5780,7 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursivelyElem = function(o
 		dataIndex: dataIndex,
 		dataFields: dataFields,
 		indexValues: indexValues,
+		itemPositions: options.itemPositions,
 		showAll: showAll
 	});
 	var subtotals;
@@ -5752,6 +5821,59 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursivelyElem = function(o
 		newI.x.push(newX);
 		items.push(newI);
 	}
+};
+/**
+ * The indexes in pivotField.items of the data items dataMap has values for, ascending; null to scan every item instead.
+ * A parent lays out only those, and has few of them: scanning the field's items for each parent is quadratic on a
+ * field with many items under a field with many items (an entry number, then its label).
+ * @param {CT_PivotField} pivotField
+ * @param {PivotDataElem} dataMap
+ * @param {Map<CT_PivotField, ?Int32Array>} [itemPositions] per field, the position of each cache index x in its
+ * items (-1 for none), or null when an x has several items or is out of proportion with them; filled on first use
+ * @return {?number[]}
+ */
+CT_pivotTableDefinition.prototype._getPresentItemIndexes = function(pivotField, dataMap, itemPositions) {
+	if (!itemPositions) {
+		return null;
+	}
+	let positions = itemPositions.get(pivotField);
+	if (undefined === positions) {
+		const items = pivotField.items.item;
+		let max = -1;
+		for (let i = 0; i < items.length; ++i) {
+			if (Asc.c_oAscItemType.Data === items[i].t) {
+				max = Math.max(max, items[i].x);
+			}
+		}
+		// x comes from the file: an index far beyond the items would size the array after it, so such a field is scanned
+		positions = max < 2 * items.length + 64 ? new Int32Array(max + 1).fill(-1) : null;
+		for (let i = 0; positions && i < items.length; ++i) {
+			if (Asc.c_oAscItemType.Data === items[i].t) {
+				if (-1 !== positions[items[i].x]) {
+					positions = null;
+					break;
+				}
+				positions[items[i].x] = i;
+			}
+		}
+		itemPositions.set(pivotField, positions);
+	}
+	if (!positions) {
+		return null;
+	}
+	const res = [];
+	for (let x in dataMap.vals) {
+		const index = positions[x];
+		if (index >= 0) {
+			res.push(index);
+		}
+	}
+	if (res.length > 1) {
+		res.sort(function(a, b) {
+			return a - b;
+		});
+	}
+	return res;
 };
 CT_pivotTableDefinition.prototype._updateRowColItemsGrandTotal = function(grandTotals, indexValues, items, fields, dataFields) {
 	if (grandTotals && !(indexValues >= 0 && 1 === fields.length)) {
@@ -6670,21 +6792,17 @@ CT_pivotTableDefinition.prototype.checkRefresh = function() {
 	let dataRef = this.asc_getDataRef();
 	return Asc.CT_pivotTableDefinition.prototype.isValidDataRef(dataRef) ? c_oAscError.ID.No : c_oAscError.ID.PivotLabledColumns;
 };
-CT_pivotTableDefinition.prototype.refresh = function() {
-	this.updateCacheData(this.asc_getDataRef());
+/**
+ * @param {Map<CT_PivotCacheDefinition, CT_PivotCacheDefinition>} [opt_rebuiltCaches] see updateCacheData
+ */
+CT_pivotTableDefinition.prototype.refresh = function(opt_rebuiltCaches) {
+	this.updateCacheData(this.asc_getDataRef(), opt_rebuiltCaches);
 };
-CT_pivotTableDefinition.prototype.asc_refresh = function(api) {
-	var dataRef = this.asc_getDataRef();
-	if (Asc.CT_pivotTableDefinition.prototype.isValidDataRef(dataRef)) {
-		api._changePivotWithLock(this, function (ws, pivot) {
-			pivot.updateCacheData(dataRef);
-		}, true);
-	} else {
-		api.sendEvent('asc_onError', c_oAscError.ID.PivotLabledColumns, c_oAscError.Level.NoCritical);
-	}
-};
-CT_pivotTableDefinition.prototype.updateCacheData = function (dataRef) {
-	var oldPivot = new AscCommonExcel.UndoRedoData_BinaryWrapper(this);
+/**
+ * @param {Range} dataRef
+ * @return {CT_PivotCacheDefinition} a cache of dataRef with the calculated fields and items of this pivot's cache
+ */
+CT_pivotTableDefinition.prototype._createCacheData = function (dataRef) {
 	var newCacheDefinition = new CT_PivotCacheDefinition();
 	newCacheDefinition.asc_create();
 	newCacheDefinition.fromDataRef(dataRef);
@@ -6696,6 +6814,48 @@ CT_pivotTableDefinition.prototype.updateCacheData = function (dataRef) {
 			newCacheDefinition.cacheFields.cacheField.push(cacheField.clone());
 		}
 	});
+	return newCacheDefinition;
+};
+/**
+ * A pivot refreshed before another one added fields to their shared cache gets an empty field for each of them.
+ */
+CT_pivotTableDefinition.prototype.fillMissingPivotFields = function () {
+	var cacheFields = this.cacheDefinition && this.cacheDefinition.getFields();
+	var pivotFields = this.asc_getPivotFields();
+	if (cacheFields && pivotFields && pivotFields.length < cacheFields.length) {
+		this.pivotFields.fillWithEmpty(cacheFields.slice(pivotFields.length));
+	}
+};
+CT_pivotTableDefinition.prototype.asc_refresh = function(api) {
+	var dataRef = this.asc_getDataRef();
+	if (Asc.CT_pivotTableDefinition.prototype.isValidDataRef(dataRef)) {
+		api._changePivotWithLock(this, function (ws, pivot) {
+			pivot.updateCacheData(dataRef);
+		}, true);
+	} else {
+		api.sendEvent('asc_onError', c_oAscError.ID.PivotLabledColumns, c_oAscError.Level.NoCritical);
+	}
+};
+/**
+ * @param {Range} dataRef
+ * @param {Map<CT_PivotCacheDefinition, CT_PivotCacheDefinition>} [opt_rebuiltCaches] refresh-all's caches, old to new:
+ * the pivots that shared a cache share the rebuilt one, built once, as in Excel. Each pivot adds the shared items of the
+ * fields it lays out, and reuses the range groups (date groups) another pivot added. Caches with text groups are not shared.
+ */
+CT_pivotTableDefinition.prototype.updateCacheData = function (dataRef, opt_rebuiltCaches) {
+	// the undo snapshots hold the cache: hundreds of MB over a big workbook's pivots
+	var historyOn = History.Is_On();
+	var oldPivot = historyOn ? new AscCommonExcel.UndoRedoData_BinaryWrapper(this) : null;
+	var canShare = opt_rebuiltCaches && this.cacheDefinition.getFields().every(function(cacheField) {
+		return cacheField.databaseField || cacheField.formula || cacheField.getGroupRangePr();
+	});
+	var newCacheDefinition = canShare && opt_rebuiltCaches.get(this.cacheDefinition);
+	if (!newCacheDefinition) {
+		newCacheDefinition = this._createCacheData(dataRef);
+		if (canShare) {
+			opt_rebuiltCaches.set(this.cacheDefinition, newCacheDefinition);
+		}
+	}
 
 	let oldPivotField = this.asc_getPivotFields().map(function(elem) {return elem.clone();});
 	var pivotFieldsMap = new Map();
@@ -6710,9 +6870,11 @@ CT_pivotTableDefinition.prototype.updateCacheData = function (dataRef) {
 	this.updateIndexesForNewPivotFields(newCacheDefinition, newCTPivotFields, pivotFieldsMap, pivotFieldsIndexesMap);
 
 	this.setChanged(true);
-	var newPivot = new AscCommonExcel.UndoRedoData_BinaryWrapper(this);
-	History.Add(AscCommonExcel.g_oUndoRedoWorksheet, AscCH.historyitem_Worksheet_PivotReplace, this.worksheet.getId(),
-		null, new AscCommonExcel.UndoRedoData_PivotTableRedo(this.Get_Id(), oldPivot, newPivot));
+	if (historyOn) {
+		var newPivot = new AscCommonExcel.UndoRedoData_BinaryWrapper(this);
+		History.Add(AscCommonExcel.g_oUndoRedoWorksheet, AscCH.historyitem_Worksheet_PivotReplace, this.worksheet.getId(),
+			null, new AscCommonExcel.UndoRedoData_PivotTableRedo(this.Get_Id(), oldPivot, newPivot));
+	}
 
 	this._updateCacheDataUpdateSlicersPost();
 };
@@ -6743,6 +6905,14 @@ CT_pivotTableDefinition.prototype._updateCacheDataUpdatePivotFieldsMap = functio
 CT_pivotTableDefinition.prototype.updateIndexesForNewPivotFields = function (newCacheDefinition, newCTPivotFields, pivotFieldsMap, pivotFieldsIndexesMap) {
 	var newCTPageFields = null;
 	if (this.asc_getPageFields()) {
+		// a page field's selected item is a position in its field's items, which the refresh reorders (new items sorted in)
+		this.asc_getPageFields().forEach(function(pageField) {
+			var itemsMap = null !== pageField.item && pivotFieldsIndexesMap.get(pageField.fld);
+			if (itemsMap) {
+				var newItem = itemsMap.get(pageField.item);
+				pageField.item = undefined !== newItem ? newItem : null;
+			}
+		});
 		newCTPageFields = new CT_PageFields();
 		this._updateCacheDataUpdatePageDataFieldsIndexes(this.asc_getPageFields(), newCTPageFields.pageField, pivotFieldsMap);
 	}
@@ -6819,6 +6989,20 @@ CT_pivotTableDefinition.prototype._updateCacheDataUpdatePivotFieldsIndexesGroup 
 				var oldRangePr = oldCacheField.getGroupRangePr();
 				if (newBaseCacheField && cacheFieldsIndexesMap.has(newBaseIndex) &&
 					(!oldRangePr || oldBaseCacheField.isEqualByContains(newBaseCacheField))) {
+					var sharedIndex = oldRangePr ? newCacheDefinition.cacheFields.getIndexByName(oldCacheField.name) : -1;
+					var sharedCacheField = newCacheFields[sharedIndex];
+					if (sharedCacheField && sharedCacheField.getGroupRangePr() && newBaseIndex === sharedCacheField.getGroupBase()) {
+						// a cache rebuilt for several pivots: the first of them added the group
+						var sharedPivotField = oldPivotField.clone();
+						var sharedIndexesMap = sharedPivotField.refreshPivotFieldItem(sharedCacheField.getGroupOrSharedItems(), oldCacheField.getGroupOrSharedItems());
+						sharedPivotField.groupRangePr(sharedCacheField.getGroupOrSharedSize(), sharedCacheField.getGroupOrSharedItems());
+						pivotFieldsMap.set(i, sharedIndex);
+						if (sharedIndexesMap) {
+							cacheFieldsIndexesMap.set(i, sharedIndexesMap);
+						}
+						newPivotFields[sharedIndex] = sharedPivotField;
+						continue;
+					}
 					var newIndexPar = newCacheFields.length;
 					var newCacheField = oldCacheField.clone();
 					if (-1 !== newCacheDefinition.cacheFields.getIndexByName(newCacheField.name)) {
@@ -11105,7 +11289,39 @@ PivotFormatsManager.prototype.getSuitableFormatsCollectionItems = function(query
  * @return {CellXfs | null}
  */
 PivotFormatsManager.prototype.get = function(query) {
-	const suitableFormatsCollectionItems = this.getSuitableFormatsCollectionItems(query);
+	const indexes = [];
+	for (let i = 0; i < this.formatsCollection.length; i += 1) {
+		if (this.checkFormatsCollectionItem(this.formatsCollection[i], query)) {
+			indexes.push(i);
+		}
+	}
+	if (indexes.length === 0) {
+		return null;
+	}
+	// The style depends only on the formats that apply: built once per combination, as the style cache's own object.
+	// A new object per cell costs each cell a hash of its style when set, millions of them on a big pivot.
+	const normalXf = AscCommonExcel.g_StyleCache.firstXf;
+	if (this.stylesCacheCollection !== this.formatsCollection || this.stylesCacheNormalXf !== normalXf) {
+		this.stylesCache = new Map();
+		this.stylesCacheCollection = this.formatsCollection;
+		this.stylesCacheNormalXf = normalXf;
+	}
+	const key = indexes.join(",");
+	let style = this.stylesCache.get(key);
+	if (undefined === style) {
+		const t = this;
+		style = AscCommonExcel.g_StyleCache.addXf(this._getStyle(indexes.map(function(index) {
+			return t.formatsCollection[index];
+		})));
+		this.stylesCache.set(key, style);
+	}
+	return style;
+};
+/**
+ * @param {PivotFormatsCollectionItem[]} suitableFormatsCollectionItems
+ * @return {CellXfs}
+ */
+PivotFormatsManager.prototype._getStyle = function(suitableFormatsCollectionItems) {
 	const result = new AscCommonExcel.CellXfs();
 	for (let i = 0; i < suitableFormatsCollectionItems.length; i += 1) {
 		const formatsCollectionItem = suitableFormatsCollectionItems[i];
@@ -11131,9 +11347,6 @@ PivotFormatsManager.prototype.get = function(query) {
 			//formats on the same cells add up as in Excel: what the first one's alignment leaves unset comes from the next
 			result.setAlign(result.align === null ? dxf.getAlign() : result.align.fillUnset(dxf.getAlign()));
 		}
-	}
-	if (suitableFormatsCollectionItems.length === 0) {
-		return null;
 	}
 	//as Excel, the formats apply over the default cell format (Normal): what they leave unset is Normal's
 	const normalXf = AscCommonExcel.g_StyleCache.firstXf;
@@ -12415,7 +12628,7 @@ PivotDataManager.prototype.update = function(dataRow) {
 				colItemIndex: colItemsIndex,
 				dataIndex: dataIndex
 			}) || new AscCommonExcel.CCellValue();
-			const cell = this.pivot.worksheet.getRange4(r1 + rowItemsIndex, c1 + colItemsIndex);
+			const cell = this.pivot.worksheet.getPivotCell(r1 + rowItemsIndex, c1 + colItemsIndex);
 			const isGrandRow = rowItem.t === Asc.c_oAscItemType.Grand;
 			const isGrandCol = colItem.t === Asc.c_oAscItemType.Grand;
 			const axis = isGrandRow ? Asc.c_oAscAxis.AxisCol : Asc.c_oAscAxis.AxisRow;

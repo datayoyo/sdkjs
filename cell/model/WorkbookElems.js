@@ -5935,12 +5935,14 @@ StyleManager.prototype =
 		this.stylesTablePivot.push({xf: xf, range: range, stripe: stripe, borders: undefined});
 	};
 	SheetMergedStyles.prototype.clearTablePivotStyle = function(range) {
-		for (var i = this.stylesTablePivot.length - 1; i >= 0; --i) {
-			var style = this.stylesTablePivot[i];
-			if (style.range.isIntersect(range)) {
-				this.stylesTablePivot.splice(i, 1);
+		// One pass: a pivot styles its rows one by one, and splicing each of them out is quadratic on a big pivot
+		var styles = this.stylesTablePivot, kept = 0;
+		for (var i = 0; i < styles.length; ++i) {
+			if (!styles[i].range.isIntersect(range)) {
+				styles[kept++] = styles[i];
 			}
 		}
+		styles.length = kept;
 	};
 	SheetMergedStyles.prototype.setConditionalStyle = function(rule, ranges, formula) {
 		this.stylesConditionalIterator = null;
