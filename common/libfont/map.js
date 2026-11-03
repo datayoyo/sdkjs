@@ -121,8 +121,12 @@
 			["Arial", "Liberation Sans", "Helvetica", "Nimbus Sans L"],
 			["Times New Roman", "Liberation Serif"],
 			["Courier New", "Liberation Mono"],
-			["Segoe", "Segoe UI"],
-			["Cambria", "Caladea"]
+			["Segoe", "Segoe UI", "Selawik"],
+			["Cambria", "Caladea"],
+			// Selawik (OFL) has Segoe UI's metrics, weight by weight: text keeps Excel's widths without the Office fonts
+			["Segoe UI Semibold", "Selawik Semibold"],
+			["Segoe UI Semilight", "Selawik Semilight"],
+			["Segoe UI Light", "Selawik Light"]
 		];
 		this.FD_Ascii_Font_Like_Main = {
 			"Cambria Math"  : 0,
@@ -146,9 +150,17 @@
 
 			"Segoe"             : 5,
 			"Segoe UI"          : 5,
+			"Selawik"           : 5,
 
 			"Cambria"           : 6,
-			"Caladea"           : 6
+			"Caladea"           : 6,
+
+			"Segoe UI Semibold" : 7,
+			"Selawik Semibold"  : 7,
+			"Segoe UI Semilight": 8,
+			"Selawik Semilight" : 8,
+			"Segoe UI Light"    : 9,
+			"Selawik Light"     : 9
 		};
 
 		this.ChangeGlyphsMap = {
