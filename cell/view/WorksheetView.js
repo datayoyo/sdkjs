@@ -9969,6 +9969,10 @@ function isAllowPasteLink(pastedWb) {
 
         if (fl.wrapText) {
             maxW -= indent * 3 * this.defaultSpaceWidth;
+        } else if (indent && maxW !== undefined && !verticalText && AscCommon.align_Left === ha && asc.isFixedWidthCell(str)) {
+            // A repeat character fills what the indent leaves of the cell, as in Excel: the text is drawn the indent
+            // to the right, so a fill over the whole width ran past the cell and lost its last characters.
+            maxW -= indent * 3 * this.defaultSpaceWidth;
         }
 
 		//to properly calculate row height, need to know text size in cell. if column is hidden, maxW will always be 0 and measureString calculation will be wrong
