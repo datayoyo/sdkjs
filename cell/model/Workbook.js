@@ -9955,10 +9955,14 @@
 		if(null === targetCell){
 			var cell = new Cell(this);
 			wb.loadCells.push(cell);
-			if (!cell.loadContent(row, col)) {
+			var isNew = !cell.loadContent(row, col);
+			if (isNew) {
 				this._initCell(cell, row, col);
 			}
 			fAction(cell);
+			if (isNew) {
+				this._keepInitStyle(cell);
+			}
 			cell.saveContent(true);
 			wb.loadCells.pop();
 		} else {
@@ -9997,6 +10001,17 @@
 	};
 	Worksheet.prototype.setCellsByColRowsCount = function (val) {
 		this.cellsByColRowsCount = val;
+	};
+	/**
+	 * A cell _initCell created takes the row's or column's style it was given as its own, as in Excel (a cell without a
+	 * style of its own shows the Normal style, whatever its column's) and as before 10.0: _initCell gives the style only
+	 * transiently, and the writer and loadContent read the style store. On creation, not once it holds a value:
+	 * Range.setValue creates its cells empty in a first pass (dynamic arrays) and sets them in a second.
+	 */
+	Worksheet.prototype._keepInitStyle = function (cell) {
+		if (cell.xfs) {
+			AscCommonExcel.CellStyleStorage.mirrorCellStyle(cell);
+		}
 	};
 	Worksheet.prototype._initCell=function(cell, nRow, nCol){
 		cell.setChanged(true);
@@ -19761,10 +19776,14 @@
 						}
 					}
 					if (null === targetCell) {
-						if (!tempCell.loadContent(i, j)) {
+						var isNew = !tempCell.loadContent(i, j);
+						if (isNew) {
 							this.worksheet._initCell(tempCell, i, j);
 						}
 						action(tempCell, i, j, oBBox.r1, oBBox.c1);
+						if (isNew) {
+							this.worksheet._keepInitStyle(tempCell);
+						}
 						tempCell.saveContent(true);
 					} else {
 						action(targetCell, i, j, oBBox.r1, oBBox.c1);
