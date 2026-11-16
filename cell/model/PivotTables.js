@@ -5796,7 +5796,6 @@ CT_pivotTableDefinition.prototype._updateRowColItemsRecursively = function(optio
 			const present = showAll || pivotField.showAll ? null : this._getPresentItemIndexes(pivotField, dataMap, itemPositions);
 			const sortDataIndex = pivotField.getSortDataIndex();
 			if (c_oAscFieldSortType.Manual !== pivotField.sortType && 0 <= sortDataIndex && sortDataIndex < dataFieldsLength) {
-				pivotField = pivotField.clone();
 				const dataField = dataFields[sortDataIndex];
 				const pivotItems = pivotField.items.item;
 				const sortedPivotItems = present ? Array.from(present, function(index) {
